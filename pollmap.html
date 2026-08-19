@@ -7,7 +7,6 @@
     <link rel="icon" type="image/png" href="weemaps_01.png">
 
     <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
-    <link rel="stylesheet" href="https://unpkg.com/@mapbox/mapbox-gl-draw@1.4.3/dist/mapbox-gl-draw.css" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Text+Me+One&display=swap" rel="stylesheet">
     <style>
@@ -58,6 +57,15 @@
         .tool-btn i { margin-right: 10px; width: 20px; text-align: center; }
         .btn-eraser.active { background: #f89f9f !important; border-color: #dc3545 !important; color: #dc3545 !important; }
 
+        .slider-label { display: block; font-size: 12px; color: #cccccc; margin: 12px 0 2px; }
+        .slider-label input[type=range] { width: 100%; margin-top: 4px; accent-color: #8ebdff; }
+
+        .brush-comment {
+            width: 100%; height: 50px; margin-top: 8px; padding: 8px; box-sizing: border-box;
+            border: 1px solid #555; border-radius: 4px; background-color: #505050; color: white;
+            font-family: 'Text Me One', sans-serif; font-size: 13px; resize: none; display: none;
+        }
+
         .submit-btn { background-color: #28a745; color: white; border: none; padding: 12px; width: 100%; border-radius: 5px; font-weight: bold; cursor: pointer; margin-top: 15px; font-family: 'Text Me One'; font-size:16px; }
         .submit-btn:hover { background: #166628; transition: all 0.2s}
         .submit-btn:disabled { background-color: #94d3a2; cursor: not-allowed; }
@@ -88,22 +96,13 @@
         #survey-btn:hover { background: #0056b3; }
 
         /* --- KURZOROK ÉS EGYÉB --- */
-        .eraser-cursor { cursor: crosshair !important; }
+        .paint-cursor { cursor: crosshair !important; }
 
         /* MapLibre kontrollok sötét témához igazítva */
         .maplibregl-ctrl-group { background: #424242 !important; border: 1px solid #e0e0e0; }
         .maplibregl-ctrl-group button { background-color: #424242 !important; }
         .maplibregl-ctrl-group button:hover { background-color: #1a1a1a !important; }
         .maplibregl-ctrl-icon { filter: invert(1); }
-
-        /* Popup űrlap formázása */
-        .custom-popup-form { display: flex; flex-direction: column; gap: 8px; min-width: 200px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;}
-        .custom-popup-form h4 { margin: 0; font-size: 16px; color: #333; text-align: center;}
-        .custom-popup-form textarea { width: 100%; height: 60px; padding: 5px; resize: none; border: 1px solid #ccc; border-radius: 4px; font-family: inherit;}
-        .custom-popup-form .btn-row { display: flex; justify-content: space-between; gap: 10px;}
-        .custom-popup-form button { flex: 1; padding: 6px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;}
-        .btn-save { background-color: #28a745; color: white; }
-        .btn-cancel { background-color: #dc3545; color: white; }
 
                 /* --- BAL ALSÓ LOGÓ --- */
         #bottom-logo {
@@ -185,7 +184,7 @@
             <p id="intro-text">Ez egy közösségi térképező alkalmazás, ahol a városi átalakulásokkal kapcsolatos véleményedre vagyunk kíváncsiak.</p>
             <p style="font-size: 16px; color: #aaa;">
                 1. Válaszd ki az eszköztárban, hogy milyen attitűddel értékelsz.<br>
-                2. Kattints vagy rajzolj a térképre, és <b>írd le a véleményed</b> a felugró ablakban!<br>
+                2. Fesd rá az ecsettel a térképre, ahol így érzel — a szél elhalványul, több áthúzás mélyíti.<br>
                 3. Ha végeztél a térképpel, küldd be a munkád.<br>
                 4. Végül töltsd ki a demográfiai panelt is.<br>
             </p>
@@ -202,25 +201,31 @@
     </div>
 
     <div id="custom-panel">
-        <h3>💭 Érzékelés térképezése</h3>
+        <h3>🖌️ Érzékelés térképezése</h3>
 
         <div class="tool-row">
-            <button class="tool-btn" id="btn-positive" onclick="activateAttitudeTool('draw_point', 'Pozitív')">
+            <button class="tool-btn" id="btn-positive" onclick="selectAttitude('Pozitív')">
                 <i class="fas fa-smile" style="color:#28a745"></i> Tetszik / Jó irány
             </button>
-            <button class="tool-btn" id="btn-negative" onclick="activateAttitudeTool('draw_point', 'Negatív')">
+            <button class="tool-btn" id="btn-negative" onclick="selectAttitude('Negatív')">
                 <i class="fas fa-frown" style="color:#dc3545"></i> Nem tetszik / Zavaró
             </button>
-            <button class="tool-btn" id="btn-missing" onclick="activateAttitudeTool('draw_point', 'Hiány')">
+            <button class="tool-btn" id="btn-missing" onclick="selectAttitude('Hiány')">
                 <i class="fas fa-search" style="color:#ffc107"></i> Itt hiányzik valami
             </button>
-            <button class="tool-btn" id="btn-polygon" onclick="activateAttitudeTool('draw_polygon', 'Átalakuló terület')">
-                <i class="fas fa-draw-polygon" style="color:#8ebdff"></i> Átalakuló terület
+            <button class="tool-btn" id="btn-polygon" onclick="selectAttitude('Átalakuló terület')">
+                <i class="fas fa-paintbrush" style="color:#8ebdff"></i> Átalakuló terület
             </button>
-            <button class="tool-btn btn-eraser" id="btn-eraser" onclick="handleEraserClick()">
+            <button class="tool-btn btn-eraser" id="btn-eraser" onclick="toggleEraser()">
                 <i class="fas fa-eraser"></i> Radír
             </button>
         </div>
+
+        <label class="slider-label">Ecset vastagság
+            <input type="range" id="brushSizeInput" min="12" max="70" value="30">
+        </label>
+
+        <textarea id="attitude-comment" class="brush-comment" placeholder="Miért érzed így? (opcionális)"></textarea>
 
         <button class="submit-btn" onclick="submitDrawing()">✅ Térkép beküldése</button>
         <div id="status">Betöltés…</div>
@@ -253,12 +258,7 @@
 
     <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
     <script src="https://unpkg.com/pmtiles@3.0.7/dist/pmtiles.js"></script>
-    <script src="https://unpkg.com/@mapbox/mapbox-gl-draw@1.4.3/dist/mapbox-gl-draw.js"></script>
     <script>
-        // A mapbox-gl-draw néhány belső ága a `window.mapboxgl` globálist keresi;
-        // a MapLibre GL JS API-kompatibilis vele, csak alias kell.
-        if (!window.mapboxgl) window.mapboxgl = maplibregl;
-
         function closeModal() {
             document.getElementById('intro-modal').style.display = 'none';
         }
@@ -287,7 +287,7 @@
                 introText: 'Ez egy közösségi térképező alkalmazás, ahol a városi átalakulásokkal kapcsolatos véleményedre vagyunk kíváncsiak.',
                 cityPlaceholder: 'Szeged'
             },
-            map: { center: [46.2530, 20.1414], zoom: 14 },
+            map: { center: [46.2530, 20.1414], zoom: 14, paintAreaKm: 3 },
             submitUrl: 'https://script.google.com/macros/s/AKfycbw3vipZJpoOP5Zyu_H3DtDYKBODidPhHisulq_inHlm9SqP7_Y1TJMJg6MCMEHcPFuk/exec'
         };
 
@@ -316,36 +316,147 @@
             };
         }
 
-        var ATTITUDE_COLOR_MATCH = ['match', ['get', 'attitude'],
-            'Pozitív', '#28a745',
-            'Negatív', '#dc3545',
-            'Hiány', '#ffc107',
-            'Átalakuló terület', '#8ebdff',
-            '#6c757d'
-        ];
+        // --- Fuzzy ecset: egyetlen rajzeszköz, a "szín" csak azt mondja meg,
+        // melyik attitűd-réteget fessük. Kategóriánként két 0-1 canvas van:
+        // egy fehér "intensity" (ebbe fest az ecset, additív, telítődik),
+        // és egy színezett "display" (ebből mintázza a MapLibre canvas-forrás).
+        var ATTITUDES = ['Pozitív', 'Negatív', 'Hiány', 'Átalakuló terület'];
+        var ATTITUDE_COLORS = {
+            'Pozitív': '#28a745',
+            'Negatív': '#dc3545',
+            'Hiány': '#ffc107',
+            'Átalakuló terület': '#8ebdff'
+        };
+        var ATTITUDE_BTN_ID = {
+            'Pozitív': 'btn-positive',
+            'Negatív': 'btn-negative',
+            'Hiány': 'btn-missing',
+            'Átalakuló terület': 'btn-polygon'
+        };
+        var PAINT_CANVAS_SIZE = 320;
 
-        var DRAW_STYLES = [
-            { id: 'gl-draw-polygon-fill', type: 'fill', filter: ['all', ['==', '$type', 'Polygon']],
-              paint: { 'fill-color': ATTITUDE_COLOR_MATCH, 'fill-opacity': 0.25 } },
-            { id: 'gl-draw-polygon-stroke', type: 'line', filter: ['all', ['==', '$type', 'Polygon']],
-              layout: { 'line-cap': 'round', 'line-join': 'round' },
-              paint: { 'line-color': ATTITUDE_COLOR_MATCH, 'line-width': 3 } },
-            { id: 'gl-draw-line', type: 'line', filter: ['all', ['==', '$type', 'LineString']],
-              layout: { 'line-cap': 'round', 'line-join': 'round' },
-              paint: { 'line-color': '#8ebdff', 'line-dasharray': [0.4, 4], 'line-width': 3 } },
-            { id: 'gl-draw-vertex', type: 'circle',
-              filter: ['all', ['==', 'meta', 'vertex'], ['==', '$type', 'Point']],
-              paint: { 'circle-radius': 5, 'circle-color': '#fff', 'circle-stroke-color': '#8ebdff', 'circle-stroke-width': 2 } },
-            { id: 'gl-draw-point', type: 'circle',
-              filter: ['all', ['==', '$type', 'Point'], ['==', 'meta', 'feature']],
-              paint: { 'circle-radius': 9, 'circle-color': ATTITUDE_COLOR_MATCH, 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 } }
-        ];
-
-        var map, draw, SCRIPT_URL;
+        var map, SCRIPT_URL, paintBounds;
+        var layers = {};
+        var comments = {};
         var currentAttitude = null;
-        var currentDrawMode = null;
         var eraserActive = false;
-        var activePopups = {};
+        var painting = false;
+        var brushSize = 30;
+        var pendingUpdates = {};
+
+        function hexToRgb(hex) {
+            var n = parseInt(hex.slice(1), 16);
+            return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+        }
+
+        function slug(s) {
+            return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z]/g, '');
+        }
+
+        function computePaintBounds(center, areaKm) {
+            var halfKm = areaKm / 2;
+            var dLat = halfKm / 111.32;
+            var dLng = halfKm / (111.32 * Math.cos(center[0] * Math.PI / 180));
+            return {
+                north: center[0] + dLat, south: center[0] - dLat,
+                east: center[1] + dLng, west: center[1] - dLng
+            };
+        }
+
+        function setupPaintLayers(config) {
+            var areaKm = config.map.paintAreaKm || 3;
+            paintBounds = computePaintBounds(config.map.center, areaKm);
+            var coords = [
+                [paintBounds.west, paintBounds.north],
+                [paintBounds.east, paintBounds.north],
+                [paintBounds.east, paintBounds.south],
+                [paintBounds.west, paintBounds.south]
+            ];
+
+            ATTITUDES.forEach(function(att) {
+                var intensity = document.createElement('canvas');
+                intensity.width = PAINT_CANVAS_SIZE; intensity.height = PAINT_CANVAS_SIZE;
+                var display = document.createElement('canvas');
+                display.width = PAINT_CANVAS_SIZE; display.height = PAINT_CANVAS_SIZE;
+                var sourceId = 'paint-' + slug(att);
+
+                map.addSource(sourceId, { type: 'canvas', canvas: display, coordinates: coords, animate: true });
+                map.addLayer({ id: sourceId, type: 'raster', source: sourceId, paint: { 'raster-opacity': 0.78 } });
+
+                layers[att] = {
+                    intensity: intensity, ictx: intensity.getContext('2d', { willReadFrequently: true }),
+                    display: display, dctx: display.getContext('2d'),
+                    color: ATTITUDE_COLORS[att]
+                };
+                comments[att] = '';
+            });
+        }
+
+        function renderLayer(att) {
+            var l = layers[att];
+            l.dctx.clearRect(0, 0, PAINT_CANVAS_SIZE, PAINT_CANVAS_SIZE);
+            l.dctx.globalCompositeOperation = 'source-over';
+            l.dctx.fillStyle = l.color;
+            l.dctx.fillRect(0, 0, PAINT_CANVAS_SIZE, PAINT_CANVAS_SIZE);
+            l.dctx.globalCompositeOperation = 'destination-in';
+            l.dctx.drawImage(l.intensity, 0, 0);
+            l.dctx.globalCompositeOperation = 'source-over';
+        }
+
+        function scheduleLayerUpdate(att) {
+            if (pendingUpdates[att]) return;
+            pendingUpdates[att] = true;
+            requestAnimationFrame(function() {
+                pendingUpdates[att] = false;
+                renderLayer(att);
+            });
+        }
+
+        function lngLatToCanvasXY(lngLat) {
+            var x = (lngLat.lng - paintBounds.west) / (paintBounds.east - paintBounds.west) * PAINT_CANVAS_SIZE;
+            var y = (paintBounds.north - lngLat.lat) / (paintBounds.north - paintBounds.south) * PAINT_CANVAS_SIZE;
+            return { x: x, y: y };
+        }
+
+        function paintOne(att, lngLat, erase) {
+            var l = layers[att];
+            if (!l) return;
+            var p = lngLatToCanvasXY(lngLat);
+            if (p.x < -brushSize || p.x > PAINT_CANVAS_SIZE + brushSize || p.y < -brushSize || p.y > PAINT_CANVAS_SIZE + brushSize) return;
+
+            var grad = l.ictx.createRadialGradient(p.x, p.y, 0, p.x, p.y, brushSize);
+            grad.addColorStop(0, 'rgba(255,255,255,0.28)');
+            grad.addColorStop(1, 'rgba(255,255,255,0)');
+            l.ictx.globalCompositeOperation = erase ? 'destination-out' : 'lighter';
+            l.ictx.fillStyle = grad;
+            l.ictx.beginPath();
+            l.ictx.arc(p.x, p.y, brushSize, 0, Math.PI * 2);
+            l.ictx.fill();
+            l.ictx.globalCompositeOperation = 'source-over';
+            scheduleLayerUpdate(att);
+        }
+
+        function paintAt(lngLat) {
+            if (eraserActive) {
+                ATTITUDES.forEach(function(att) { paintOne(att, lngLat, true); });
+            } else if (currentAttitude) {
+                paintOne(currentAttitude, lngLat, false);
+            }
+        }
+
+        function wirePointerEvents() {
+            map.on('mousedown', function(e) {
+                if (!currentAttitude && !eraserActive) return;
+                painting = true;
+                paintAt(e.lngLat);
+            });
+            map.on('mousemove', function(e) {
+                if (!painting) return;
+                paintAt(e.lngLat);
+            });
+            map.on('mouseup', function() { painting = false; });
+            document.addEventListener('mouseup', function() { painting = false; });
+        }
 
         fetch('config.json')
             .then(function(r) { return r.ok ? r.json() : Promise.reject(new Error('config.json HTTP ' + r.status)); })
@@ -364,7 +475,7 @@
             document.getElementById('inp-city').placeholder = 'Pl. ' + config.project.cityPlaceholder;
             SCRIPT_URL = config.submitUrl;
 
-            // 1. Térkép fókuszálása a projekt konfigurált középpontjára
+            // Térkép fókuszálása a projekt konfigurált középpontjára
             // (a config [lat, lng] sorrendet tárol, a MapLibre [lng, lat]-et vár)
             map = new maplibregl.Map({
                 container: 'map',
@@ -374,138 +485,69 @@
             });
             map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left');
 
-            draw = new MapboxDraw({
-                displayControlsDefault: false,
-                controls: {},
-                styles: DRAW_STYLES
+            map.on('load', function() {
+                setupPaintLayers(config);
+                wirePointerEvents();
+
+                if (window.matchMedia('(max-width: 680px)').matches) {
+                    document.getElementById('survey-box').classList.add('collapsed');
+                }
+
+                document.getElementById('status').innerText = "Válassz egy eszközt!";
             });
-            map.addControl(draw);
-
-            map.on('draw.create', handleFeatureCreated);
-            map.on('draw.selectionchange', handleSelectionChange);
-
-            if (window.matchMedia('(max-width: 680px)').matches) {
-                document.getElementById('survey-box').classList.add('collapsed');
-            }
-
-            document.getElementById('status').innerText = "Válassz egy eszközt!";
         }
 
-        // 2. Eszköz és Attitűd váltó
-        function activateAttitudeTool(mode, attitude) {
+        // Eszközváltás
+        function selectAttitude(attitude) {
             currentAttitude = attitude;
-            currentDrawMode = mode;
             eraserActive = false;
 
             document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById(ATTITUDE_BTN_ID[attitude]).classList.add('active');
 
-            let btnId = '';
-            if (attitude === 'Pozitív') btnId = 'btn-positive';
-            else if (attitude === 'Negatív') btnId = 'btn-negative';
-            else if (attitude === 'Hiány') btnId = 'btn-missing';
-            else if (mode === 'draw_polygon') btnId = 'btn-polygon';
+            map.dragPan.disable();
+            document.getElementById('map').classList.add('paint-cursor');
 
-            if (btnId) document.getElementById(btnId).classList.add('active');
+            var commentBox = document.getElementById('attitude-comment');
+            commentBox.style.display = 'block';
+            commentBox.placeholder = 'Miért „' + attitude + '"? (opcionális)';
+            commentBox.value = comments[attitude] || '';
 
-            document.getElementById('map').classList.remove('eraser-cursor');
-            draw.changeMode(mode);
-            document.getElementById('status').innerText = "Kattints a térképre a jelöléshez!";
+            document.getElementById('status').innerText = "Fesd rá a térképre!";
         }
 
-        function handleEraserClick() {
+        document.getElementById('attitude-comment').addEventListener('input', function(e) {
+            if (currentAttitude) comments[currentAttitude] = e.target.value;
+        });
+
+        document.getElementById('brushSizeInput').addEventListener('input', function(e) {
+            brushSize = +e.target.value;
+        });
+
+        function toggleEraser() {
             if (eraserActive) { stopAllTools(); return; }
 
+            currentAttitude = null;
+            eraserActive = true;
             document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
             document.getElementById('btn-eraser').classList.add('active');
-            document.getElementById('map').classList.add('eraser-cursor');
+            document.getElementById('attitude-comment').style.display = 'none';
 
-            currentAttitude = null;
-            currentDrawMode = null;
-            eraserActive = true;
-            draw.changeMode('simple_select');
-            document.getElementById('status').innerText = "❌ Kattints arra, amit törölni akarsz!";
-        }
-
-        function handleSelectionChange(e) {
-            if (!eraserActive || !e.features || e.features.length === 0) return;
-            e.features.forEach(f => draw.delete(f.id));
-            document.getElementById('status').innerText = "Elem törölve!";
+            map.dragPan.disable();
+            document.getElementById('map').classList.add('paint-cursor');
+            document.getElementById('status').innerText = "❌ Fesd át, amit törölni akarsz!";
         }
 
         function stopAllTools() {
-            document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
-            document.getElementById('map').classList.remove('eraser-cursor');
             currentAttitude = null;
-            currentDrawMode = null;
             eraserActive = false;
-            if (draw) draw.changeMode('simple_select');
+            painting = false;
+            document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById('attitude-comment').style.display = 'none';
+            if (map) map.dragPan.enable();
+            document.getElementById('map').classList.remove('paint-cursor');
             document.getElementById('status').innerText = "Válassz egy eszközt!";
         }
-
-        function resumeToolIfActive() {
-            if (currentDrawMode) draw.changeMode(currentDrawMode);
-        }
-
-        function popupAnchorFor(feature) {
-            if (feature.geometry.type === 'Point') return feature.geometry.coordinates;
-            var ring = feature.geometry.coordinates[0];
-            var sx = 0, sy = 0;
-            ring.forEach(function(c) { sx += c[0]; sy += c[1]; });
-            return [sx / ring.length, sy / ring.length];
-        }
-
-        // 3. Esemény: Amikor a felhasználó letesz egy pontot vagy befejez egy területet
-        function handleFeatureCreated(e) {
-            var feature = e.features[0];
-            var id = feature.id;
-            var attitude = currentAttitude || 'Egyéb';
-            draw.setFeatureProperty(id, 'attitude', attitude);
-
-            var popupNode = document.createElement('div');
-            popupNode.innerHTML = `
-                <div class="custom-popup-form">
-                    <h4>${attitude} értékelés</h4>
-                    <p style="margin:0; font-size:12px; color:#555;">Kérlek indokold meg a választásod:</p>
-                    <textarea id="popup-comment-${id}" placeholder="Ide írd a véleményed..."></textarea>
-                    <div class="btn-row">
-                        <button class="btn-cancel" onclick="cancelPopup('${id}')">Mégsem</button>
-                        <button class="btn-save" onclick="savePopup('${id}')">Mentés</button>
-                    </div>
-                </div>
-            `;
-
-            var popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false })
-                .setLngLat(popupAnchorFor(feature))
-                .setDOMContent(popupNode)
-                .addTo(map);
-
-            activePopups[id] = popup;
-        }
-
-        // Globális függvények a Popup gombokhoz
-        window.savePopup = function(id) {
-            var comment = document.getElementById('popup-comment-' + id).value;
-
-            if (comment.trim() === "") {
-                alert("Kérlek írj legalább pár szót!");
-                return;
-            }
-
-            draw.setFeatureProperty(id, 'comment', comment);
-            var feature = draw.get(id);
-            var finalText = `<b>Típus:</b> ${feature.properties.attitude}<br><b>Vélemény:</b> ${comment}`;
-            if (activePopups[id]) activePopups[id].setHTML(finalText);
-
-            document.getElementById('status').innerText = "Vélemény rögzítve!";
-            resumeToolIfActive();
-        };
-
-        window.cancelPopup = function(id) {
-            draw.delete(id);
-            if (activePopups[id]) { activePopups[id].remove(); delete activePopups[id]; }
-            document.getElementById('status').innerText = "Jelölés megszakítva.";
-            resumeToolIfActive();
-        };
 
         // 4. BEKÜLDÉS (Google Apps Script hívás) — SCRIPT_URL az initApp()-ban áll be config-ból
         const SUBMIT_TIMEOUT_MS = 15000;
@@ -542,16 +584,61 @@
             });
         }
 
-        function submitDrawing() {
-            var data = draw.getAll();
-            var statusDiv = document.getElementById('status');
+        // Az ecsettel festett réteget egy ritka, cellánkénti (x,y,érték) rácsra
+        // mintázzuk exporthoz — ez felel meg a koncepció "fuzzy tagsági rács"
+        // adatmodelljének, nem a nyers pixeleknek.
+        var EXPORT_GRID_CELLS = 40;
 
-            if (data.features.length === 0) {
-                statusDiv.innerHTML = "<span style='color:#ffc107'>⚠️ Üres a térkép! Előbb rajzolj.</span>";
+        function buildSparseGrid(att) {
+            var l = layers[att];
+            var data = l.ictx.getImageData(0, 0, PAINT_CANVAS_SIZE, PAINT_CANVAS_SIZE).data;
+            var cellPx = PAINT_CANVAS_SIZE / EXPORT_GRID_CELLS;
+            var sums = new Float32Array(EXPORT_GRID_CELLS * EXPORT_GRID_CELLS);
+            var counts = new Uint16Array(EXPORT_GRID_CELLS * EXPORT_GRID_CELLS);
+
+            for (var y = 0; y < PAINT_CANVAS_SIZE; y++) {
+                var gy = Math.min(EXPORT_GRID_CELLS - 1, Math.floor(y / cellPx));
+                for (var x = 0; x < PAINT_CANVAS_SIZE; x++) {
+                    var gx = Math.min(EXPORT_GRID_CELLS - 1, Math.floor(x / cellPx));
+                    var a = data[(y * PAINT_CANVAS_SIZE + x) * 4 + 3] / 255;
+                    var gi = gy * EXPORT_GRID_CELLS + gx;
+                    sums[gi] += a;
+                    counts[gi]++;
+                }
+            }
+
+            var cells = [];
+            for (var i = 0; i < sums.length; i++) {
+                var avg = counts[i] ? sums[i] / counts[i] : 0;
+                if (avg > 0.03) {
+                    cells.push([i % EXPORT_GRID_CELLS, Math.floor(i / EXPORT_GRID_CELLS), Math.round(avg * 100) / 100]);
+                }
+            }
+            return cells;
+        }
+
+        function submitDrawing() {
+            var statusDiv = document.getElementById('status');
+            var paintedLayers = [];
+
+            ATTITUDES.forEach(function(att) {
+                var cells = buildSparseGrid(att);
+                if (cells.length > 0) {
+                    paintedLayers.push({ attitude: att, comment: comments[att] || '', cells: cells });
+                }
+            });
+
+            if (paintedLayers.length === 0) {
+                statusDiv.innerHTML = "<span style='color:#ffc107'>⚠️ Üres a térkép! Előbb fess rá valamit.</span>";
                 return;
             }
 
-            var payload = { dataType: 'drawing', userID: USER_ID, geojson: data };
+            var payload = {
+                dataType: 'drawing',
+                userID: USER_ID,
+                paint: { bounds: paintBounds, gridSize: EXPORT_GRID_CELLS, layers: paintedLayers }
+            };
+
             var btn = document.querySelector('.submit-btn');
             btn.disabled = true; btn.innerText = "Küldés folyamatban...";
 
