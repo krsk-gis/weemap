@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WeeMap - PGIS Attitűdtérkép</title>
+    <link rel="icon" type="image/png" href="G:\My Drive\5GIS\!GIS_Projects\WeeMap\weemaps_01.png">
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Text+Me+One&display=swap" rel="stylesheet">
+    <style>
+        body { margin: 0; padding: 0; font-family: 'Text Me One', Roboto, Helvetica, Arial, sans-serif; letter-spacing: 0.2cap;}
+        #map { height: 100vh; width: 100%; cursor: default; }
+        
+ 
+
+        /* --- BEVEZETŐ ABLAK --- */
+        #intro-modal {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(0, 0, 0, 0.85);
+            backdrop-filter: blur(5px); z-index: 9999;
+            display: flex; justify-content: center; align-items: center;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .modal-content {
+            background: rgb(37, 37, 37); padding: 40px; border-radius: 15px;
+            text-align: center; max-width: 800px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            color: white; border: 1px solid #555;
+        }
+        .modal-content h1 { 
+            margin-top: 0; font-size: 36px; font-weight: 300; 
+            display: flex; align-items: center; justify-content: center; gap: 15px; flex-wrap: wrap;
+        }
+        .modal-content p { font-size: 18px; line-height: 1.5; color: #ccc; margin-bottom: 30px; text-align: left; }
+        .intro-icon { height: 40px; width: auto; }
+        .brand-highlight { font-family: 'Text Me One', sans-serif; font-weight: 800; font-size: 42px; letter-spacing: 2px; display: flex; align-items: center; gap: 10px; }
+        .start-btn { width: 40%; padding: 10px; border: 1px solid #ddd; background: #424242; cursor: pointer; border-radius: 5px; font-size: 16px; transition: all 0.2s; color:#ffffff; font-weight: bold; }
+        .start-btn:hover { background: #007bff; border-color: #007bff; }
+        
+        /* --- BAL OLDALI VEZÉRLŐPANEL --- */
+        #custom-panel {
+            position: absolute; top: 10px; left: 50px; z-index: 1000;
+            background: rgb(37, 37, 37); padding: 15px; border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.15); width: 230px; user-select: none;
+        }
+        #custom-panel h3 { margin: 0 0 10px 0; font-size: 18px; font-weight: 600; color: #ffffff; text-align: center;}
+        .tool-btn {
+            display: flex; align-items: center; width: 100%; padding: 10px;
+            margin-bottom: 5px; border: 1px solid #ddd; background: #424242;
+            cursor: pointer; border-radius: 5px; font-size: 16px; transition: all 0.2s;
+            text-align: left; color:#ffffff; font-family: 'Text Me One'; font-weight: 500; letter-spacing: 0.1cap;
+        }
+        .tool-btn:hover { background: #1a1a1a; }
+        .tool-btn.active { background: #8ebdff; border-color: #007bff; color: #007bff; font-weight: bold; }
+        .tool-btn i { margin-right: 10px; width: 20px; text-align: center; }
+        .btn-eraser.active { background: #f89f9f !important; border-color: #dc3545 !important; color: #dc3545 !important; }
+        
+        .submit-btn { background-color: #28a745; color: white; border: none; padding: 12px; width: 100%; border-radius: 5px; font-weight: bold; cursor: pointer; margin-top: 15px; font-family: 'Text Me One'; font-size:16px; }
+        .submit-btn:hover { background: #166628; transition: all 0.2s}
+        .submit-btn:disabled { background-color: #94d3a2; cursor: not-allowed; }
+        #status { margin-top: 10px; font-size: 14px; text-align: center; min-height: 18px; font-weight: bold; color:#ffffff}
+        
+        /* --- JOBB FELSŐ LOGÓ DOBOZ --- */
+        #brand-box {
+            position: absolute; top: 10px; right: 10px; z-index: 1000;
+            background: rgb(37, 37, 37); padding: 10px 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+            text-align: right; display: flex; align-items: center; gap: 20px;
+        }
+        #brand-box img { height: 50px; width: auto; display: block; }
+        .brand-text { display: flex; flex-direction: column; align-items:flex-end }
+        #brand-box h1 { margin: 0; font-size: 40px; color: #ffffff; letter-spacing: 2px; line-height: 1.2; font-family: 'Text Me One', sans-serif; font-weight: 800 }
+        #brand-box span { font-size: 15px; color: #b6b6b6; letter-spacing: 1px; font-family: 'Text Me One', sans-serif; }
+        
+        /* --- JOBB ALSÓ DEMOGRÁFIAI DOBOZ --- */
+        #survey-box {
+            position: absolute; bottom: 20px; right: 20px; z-index: 1000;
+            background: rgb(37, 37, 37); padding: 20px; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            width: 240px; color: white; font-family: 'Text Me One', sans-serif;
+        }
+        #survey-box h4 { margin: 0 0 15px 0; color: #ffffff; font-size: 18px; font-weight: 600; text-align: center;}
+        #survey-box label { display: block; margin-top: 10px; margin-bottom: 5px; color: #cccccc; font-size: 14px;}
+        #survey-box input, #survey-box select { width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #555; border-radius: 4px; background-color: #505050; color: white; font-family: 'Text Me One', sans-serif; font-size: 14px;}
+        #survey-btn { background: #007bff; color: white; border: none; padding: 10px; width: 100%; margin-top: 15px; border-radius: 4px; cursor: pointer; font-weight: bold; font-family: 'Text Me One'; font-size: 16px;}
+        #survey-btn:hover { background: #0056b3; }
+        
+        /* --- KURZOROK ÉS EGYÉB --- */
+        .leaflet-draw-toolbar { display: none !important; }
+        .eraser-cursor { cursor: crosshair !important; }
+        .leaflet-control-zoom a { background-color: #424242 !important; color: #ffffff !important; border-color: #e0e0e0 !important; }
+        .leaflet-control-zoom a:hover { background-color: #1a1a1a !important; color: #ffffff !important; }
+        
+        /* Popup űrlap formázása */
+        .custom-popup-form { display: flex; flex-direction: column; gap: 8px; min-width: 200px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;}
+        .custom-popup-form h4 { margin: 0; font-size: 16px; color: #333; text-align: center;}
+        .custom-popup-form textarea { width: 100%; height: 60px; padding: 5px; resize: none; border: 1px solid #ccc; border-radius: 4px; font-family: inherit;}
+        .custom-popup-form .btn-row { display: flex; justify-content: space-between; gap: 10px;}
+        .custom-popup-form button { flex: 1; padding: 6px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;}
+        .btn-save { background-color: #28a745; color: white; }
+        .btn-cancel { background-color: #dc3545; color: white; }
+
+                /* --- BAL ALSÓ LOGÓ --- */
+        #bottom-logo {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            z-index: 1000;
+            pointer-events: none; /* Hogy át lehessen kattintani a térképre, ha nincs rá szükség */
+        }
+
+        #bottom-logo img {
+            height: 100px; /* Állítsd be a kívánt méretet */
+            width: auto;
+            transition: opacity 0.3s;
+            pointer-events: auto; /* A képre magára lehessen kattintani, ha pl. linket teszel rá */
+        }
+
+        #bottom-logo img:hover {
+            opacity: 1; /* Rávitelkor teljesen látszik */
+        }
+
+        /* ----------------------------------------------------------- */
+        /* --- ÚJ CSS AZ EGYEDI PIN-EKHEZ (csepp alak + FA ikon) --- */
+        /* ----------------------------------------------------------- */
+        .custom-pin {
+            width: 30px;
+            height: 30px;
+            border-radius: 50% 50% 50% 0; /* Ez hozza létre a csepp formát */
+            position: absolute;
+            transform: rotate(-45deg); /* Beforgatjuk, hogy a hegye lefele mutasson */
+            margin-top: -15px; /* Középpont igazítása */
+            margin-left: -15px;
+            border: 2px solid white; /* Kis fehér keret, hogy elváljon a térképtől */
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0.9; /* Enyhén átlátszó */
+        }
+        /* A FontAwesome ikon stílusa a pin-en belül (vissza kell forgatni, hogy egyenes legyen) */
+        .custom-pin i {
+            transform: rotate(45deg);
+            font-size: 16px;
+            color: white;
+        }
+
+        /* Attitťd alapú színváltozatok */
+        .pin-pozitiv { background-color: #28a745; } /* Zöld */
+        .pin-negativ { background-color: #dc3545; } /* Piros */
+        .pin-hiany { background-color: #ffc107; }   /* Sárga */
+        .pin-egyeb { background-color: #6c757d; }   /* Szürke (default) */
+
+    </style>
+</head>
+<body>
+    <div id="bottom-logo">
+        <img src="geons.png">
+    </div>
+    <div id="intro-modal">
+        <div class="modal-content">
+            <h1>
+                Üdvözöl a 
+                <span class="brand-highlight">
+                    <img src="weemaps_01.png" class="intro-icon" alt="Logo" onerror="this.style.display='none'">
+                    WeeMap
+                </span>
+                !
+            </h1>
+            <p>Ez egy közösségi térképező alkalmazás, ahol a városi átalakulásokkal kapcsolatos véleményedre vagyunk kíváncsiak.</p>
+            <p style="font-size: 16px; color: #aaa;">
+                1. Válaszd ki a bal oldalon, hogy milyen attitűddel értékelsz.<br>
+                2. Kattints vagy rajzolj a térképre, és <b>írd le a véleményed</b> a felugró ablakban!<br>
+                3. Ha végeztél a térképpel, küldd be a munkád.<br>
+                4. Végül töltsd ki a jobb alsó sarokban lévő kis demográfiai panelt.<br>
+            </p>
+            <button class="start-btn" onclick="closeModal()">Vágjunk bele!</button>
+        </div>
+    </div>
+    
+    <div id="brand-box">
+        <img src="weemaps_01.png" alt="Logo" onerror="this.style.display='none'">
+        <div class="brand-text">
+            <h1>WeeMap</h1>
+            <span>by Mapversum</span>
+        </div>
+    </div>
+    
+    <div id="custom-panel">
+        <h3>💭 Érzékelés térképezése</h3>
+        
+        <button class="tool-btn" id="btn-positive" onclick="activateAttitudeTool('marker', 'Pozitív')">
+            <i class="fas fa-smile" style="color:#28a745"></i> Tetszik / Jó irány
+        </button>
+        <button class="tool-btn" id="btn-negative" onclick="activateAttitudeTool('marker', 'Negatív')">
+            <i class="fas fa-frown" style="color:#dc3545"></i> Nem tetszik / Zavaró
+        </button>
+        <button class="tool-btn" id="btn-missing" onclick="activateAttitudeTool('marker', 'Hiány')">
+            <i class="fas fa-search" style="color:#ffc107"></i> Itt hiányzik valami
+        </button>
+        
+        <hr style="margin: 8px 0; border: 0; border-top: 1px solid #555;">
+        
+        <button class="tool-btn" id="btn-polygon" onclick="activateAttitudeTool('polygon', 'Átalakuló terület')">
+            <i class="fas fa-draw-polygon" style="color:#8ebdff"></i> Átalakuló terület
+        </button>
+
+        <hr style="margin: 8px 0; border: 0; border-top: 1px solid #555;">
+        
+        <button class="tool-btn btn-eraser" id="btn-eraser" onclick="toggleTool('eraser')">
+            <i class="fas fa-eraser"></i> Radír
+        </button>
+        
+        <button class="submit-btn" onclick="submitDrawing()">✅ Térkép beküldése</button>
+        <div id="status">Válassz egy eszközt!</div>
+    </div>
+    
+    <div id="survey-box">
+        <h4>📋 Pár infó rólad</h4>
+        <p style="font-size:12px; color:#cccccc; margin-bottom:15px; text-align: center;">Segítsd a kutatást anonim adataiddal!</p>
+        
+        <label>Hány éves vagy?</label>
+        <input type="number" id="inp-age" placeholder="Pl. 25">
+        
+        <label>Nemed?</label>
+        <select id="inp-gender">
+            <option value="">- Válassz -</option>
+            <option value="ferfi">Férfi</option>
+            <option value="no">Nő</option>
+            <option value="egyeb">Egyéb</option>
+        </select>
+        
+        <label>Állandó lakhely (Település):</label>
+        <input type="text" id="inp-city" placeholder="Pl. Szeged">
+        
+        <button id="survey-btn" onclick="submitSurvey()">Adatok beküldése</button>
+    </div>
+    
+    <div id="map"></div>
+    
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+    <script>
+        function closeModal() {
+            document.getElementById('intro-modal').style.display = 'none';
+        }
+        
+        function generateUUID() {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }
+        const USER_ID = generateUUID(); 
+        console.log("Session ID:", USER_ID);
+
+        // 1. Térkép fókuszálása Szeged belvárosára
+        var map = L.map('map').setView([46.2530, 20.1414], 14);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { 
+            attribution: '© OpenStreetMap' 
+        }).addTo(map);
+        
+        var drawnItems = new L.FeatureGroup();
+        map.addLayer(drawnItems);
+        
+        // Változók
+        var currentTool = null;
+        var currentAttitude = null;
+        
+        // Leaflet Draw beállítása (alapértelmezett beállítások)
+        var drawControl = new L.Control.Draw({ edit: { featureGroup: drawnItems } });
+        var drawer = {
+            polygon: new L.Draw.Polygon(map, drawControl.options.polygon),
+            marker: new L.Draw.Marker(map, drawControl.options.marker)
+        };
+        
+        // -------------------------------------------------------------
+        // --- ÚJ JAVASCRIPT FÜGGVÉNY AZ EGYEDI IKONOKHOZ (DivIcon) ---
+        // -------------------------------------------------------------
+        function getIconForAttitude(attitude) {
+            let className = '';
+            let iconClass = '';
+
+            switch (attitude) {
+                case 'Pozitív':
+                    className = 'pin-pozitiv';
+                    iconClass = 'fas fa-smile';
+                    break;
+                case 'Negatív':
+                    className = 'pin-negativ';
+                    iconClass = 'fas fa-frown';
+                    break;
+                case 'Hiány':
+                    className = 'pin-hiany';
+                    iconClass = 'fas fa-search';
+                    break;
+                default:
+                    className = 'pin-egyeb';
+                    iconClass = 'fas fa-map-marker-alt';
+                    break;
+            }
+
+            // Létrehozzuk a Leaflet DivIcon-t a CSS osztályokkal és a FontAwesome ikonnal
+            return L.divIcon({
+                className: '', // Fontos: üresen hagyjuk, hogy ne zavarjon be az alap Leaflet stílus
+                html: `<div class="custom-pin ${className}"><i class="${iconClass}"></i></div>`,
+                iconSize: [30, 30], // A pin teljes mérete
+                iconAnchor: [15, 30], // A pin hegyének pozíciója a képen belül (közép-lent)
+                popupAnchor: [0, -30] // Ahonnan a popup kinyílik a pin-hez képest
+            });
+        }
+
+        // 2. Eszköz és Attitűd váltó (MÓDOSÍTVA AZ IKONOK MIATT)
+        function activateAttitudeTool(type, attitude) {
+            currentAttitude = attitude;
+            
+            // Az összes gombról levesszük az aktív osztályt
+            document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+            
+            // Helyes gomb aktívvá tétele az attitťd alapján
+            let btnId = '';
+            if(attitude === 'Pozitív') btnId = 'btn-positive';
+            else if(attitude === 'Negatív') btnId = 'btn-negative';
+            else if(attitude === 'Hiány') btnId = 'btn-missing';
+            else if(type === 'polygon') btnId = 'btn-polygon';
+            
+            if(btnId) document.getElementById(btnId).classList.add('active');
+            
+            // --- ÚJ: Ha markert rakunk le, frissítjük a rajzoló eszköz ikonját az aktuális attitűdhöz ---
+            if (type === 'marker') {
+                const customIcon = getIconForAttitude(attitude);
+                // Dinamikusan felülírjuk a marker rajzoló opcióit az új ikonnal
+                drawer.marker.setOptions({ icon: customIcon });
+            }
+
+            // Kapcsoljuk be a térképi rajzolót
+            toggleTool(type, true);
+        }
+
+        function toggleTool(type, skipButtonStyling = false) {
+            if (currentTool === type && !skipButtonStyling) { stopAllTools(); return; }
+            stopAllTools();
+            
+            if (!skipButtonStyling) {
+                var btn = document.getElementById('btn-' + type);
+                if (btn) btn.classList.add('active');
+            }
+            
+            currentTool = type;
+            var statusDiv = document.getElementById('status');
+            var mapDiv = document.getElementById('map');
+            
+            if (type === 'eraser') { 
+                mapDiv.classList.add('eraser-cursor'); 
+                statusDiv.innerText = "❌ Kattints arra, amit törölni akarsz!"; 
+            } else if (drawer[type]) { 
+                drawer[type].enable(); 
+                statusDiv.innerText = "Kattints a térképre a jelöléshez!"; 
+            }
+        }
+        
+        function stopAllTools() {
+            for (var key in drawer) { drawer[key].disable(); }
+            document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById('map').classList.remove('eraser-cursor');
+            currentTool = null;
+            currentAttitude = null;
+            document.getElementById('status').innerText = "Válassz egy eszközt!";
+        }
+
+        // Törlés eseménykezelője
+        drawnItems.on('click', function(e) { 
+            if (currentTool === 'eraser') {
+                drawnItems.removeLayer(e.layer); 
+                document.getElementById('status').innerText = "Elem törölve!";
+            }
+        });
+
+        // 3. Esemény: Amikor a felhasználó letesz egy pontot vagy befejez egy területet
+        map.on(L.Draw.Event.CREATED, function (e) { 
+            var layer = e.layer;
+            var type = e.layerType;
+            
+            // Hozzáadjuk a réteget a térképhez, hogy megkapja a belső ID-t
+            drawnItems.addLayer(layer);
+            
+            // Előkészítjük a GeoJSON property-ket
+            layer.feature = layer.feature || { type: 'Feature', properties: {} };
+            layer.feature.properties.attitude = currentAttitude || 'Egyéb';
+            
+            // Létrehozzuk a felugró ablak tartalmát
+            var popupContent = `
+                <div class="custom-popup-form">
+                    <h4>${layer.feature.properties.attitude} értékelés</h4>
+                    <p style="margin:0; font-size:12px; color:#555;">Kérlek indokold meg a választásod:</p>
+                    <textarea id="popup-comment-${layer._leaflet_id}" placeholder="Ide írd a véleményed..."></textarea>
+                    <div class="btn-row">
+                        <button class="btn-cancel" onclick="cancelPopup(${layer._leaflet_id})">Mégsem</button>
+                        <button class="btn-save" onclick="savePopup(${layer._leaflet_id})">Mentés</button>
+                    </div>
+                </div>
+            `;
+            
+            // Hozzákötjük a popupot és automatikusan megnyitjuk
+            layer.bindPopup(popupContent, {
+                closeButton: false, // Ne lehessen csak úgy bezárni az X-szel, kötelező a gomb
+                closeOnClick: false,
+                autoClose: false
+            }).openPopup();
+        });
+
+        // Globális függvények a Popup gombokhoz
+        window.savePopup = function(layerId) {
+            var layer = drawnItems.getLayer(layerId);
+            var comment = document.getElementById(`popup-comment-${layerId}`).value;
+            
+            if(comment.trim() === "") {
+                alert("Kérlek írj legalább pár szót!");
+                return;
+            }
+            
+            // Elmentjük a szöveget a GeoJSON struktúrába
+            layer.feature.properties.comment = comment;
+            
+            // Kicseréljük a popup tartalmát a végső, olvasható szövegre
+            var finalText = `<b>Típus:</b> ${layer.feature.properties.attitude}<br><b>Vélemény:</b> ${comment}`;
+            layer.bindPopup(finalText).closePopup();
+            
+            document.getElementById('status').innerText = "Vélemény rögzítve!";
+            
+            // Visszakapcsoljuk az eszközt (hogy tudjon továbbra is rajzolni)
+            if(currentTool) drawer[currentTool].enable();
+        };
+
+        window.cancelPopup = function(layerId) {
+            var layer = drawnItems.getLayer(layerId);
+            drawnItems.removeLayer(layer); // Ha mégsem, akkor töröljük a letett pontot/alakzatot
+            document.getElementById('status').innerText = "Jelölés megszakítva.";
+            
+            if(currentTool) drawer[currentTool].enable();
+        };
+
+        // 4. BEKÜLDÉS (Google Apps Script hívás)
+        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbw3vipZJpoOP5Zyu_H3DtDYKBODidPhHisulq_inHlm9SqP7_Y1TJMJg6MCMEHcPFuk/exec';
+        
+        function submitDrawing() {
+            var data = drawnItems.toGeoJSON();
+            var statusDiv = document.getElementById('status');
+            
+            if (data.features.length === 0) { 
+                statusDiv.innerHTML = "<span style='color:#ffc107'>⚠️ Üres a térkép! Előbb rajzolj.</span>"; 
+                return; 
+            }
+            
+            var payload = { dataType: 'drawing', userID: USER_ID, geojson: data };
+            var btn = document.querySelector('.submit-btn');
+            btn.disabled = true; btn.innerText = "Küldés folyamatban...";
+            
+            fetch(SCRIPT_URL, {
+                method: 'POST', mode: 'no-cors', 
+                headers: { 'Content-Type': 'text/plain' },
+                body: JSON.stringify(payload)
+            })
+            .then(() => {
+                statusDiv.innerHTML = "<span style='color:#94d3a2'>✅ Sikeres beküldés! Köszönjük.</span>";
+                btn.innerText = "Beküldve";
+                setTimeout(() => { btn.disabled = false; btn.innerText = "✅ Térkép beküldése"; }, 5000);
+            })
+            .catch(error => { console.error(error); btn.disabled = false; btn.innerText = "Hiba, próbáld újra"; });
+        }
+        
+        function submitSurvey() {
+            var age = document.getElementById('inp-age').value;
+            var gender = document.getElementById('inp-gender').value;
+            var city = document.getElementById('inp-city').value;
+            var btn = document.getElementById('survey-btn');
+            
+            if(!age || !gender || !city) { 
+                alert("Kérlek töltsd ki mind a három mezőt!"); 
+                return; 
+            }
+            
+            btn.innerText = "Küldés...";
+            btn.disabled = true;
+            
+            var payload = {
+                dataType: 'survey',
+                userID: USER_ID,
+                age: age,
+                gender: gender,
+                city: city
+            };
+            
+            fetch(SCRIPT_URL, {
+                method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain' },
+                body: JSON.stringify(payload)
+            })
+            .then(() => {
+                document.getElementById('survey-box').innerHTML = "<h4 style='color:#28a745; text-align:center; margin-top:20px;'>Köszönjük! ✅</h4><p style='text-align:center; color:#ccc'>A demográfiai adataidat rögzítettük.</p>";
+            })
+            .catch(error => { console.error(error); btn.innerText = "Hiba, próbáld újra"; btn.disabled = false; });
+        }
+    </script>
+</body>
+</html>
