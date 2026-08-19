@@ -3,10 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WeeMap - Kérdőív</title>
-    <link rel="icon" type="image/png" href="weemaps_01.png">
+    <title>weemap - Kérdőív</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="favicon-192.png">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
 
     <link href="https://fonts.googleapis.com/css2?family=Text+Me+One&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@700;800&display=swap" rel="stylesheet">
     <style>
         body {
             margin: 0; padding: 0; min-height: 100vh; box-sizing: border-box;
@@ -20,10 +24,7 @@
             box-shadow: 0 10px 30px rgba(0,0,0,0.5); color: white;
             width: 100%; max-width: 380px; box-sizing: border-box;
         }
-        #survey-card h1 {
-            margin: 0 0 6px 0; font-size: 28px; text-align: center;
-            letter-spacing: 1px; font-weight: 800;
-        }
+        #brand-logo { display: block; height: 34px; width: auto; margin: 0 auto 14px; }
         #survey-card h2 {
             margin: 0 0 20px 0; font-size: 16px; font-weight: 400; color: #b6b6b6;
             text-align: center;
@@ -53,7 +54,7 @@
 </head>
 <body>
     <div id="survey-card">
-        <h1 id="brand-title">WeeMap</h1>
+        <img src="weemap-brand.svg" alt="weemap" id="brand-logo">
         <h2 id="survey-subtitle">Köszönjük a beküldött térképet!</h2>
         <p class="lead">Már csak néhány gyors kérdés van hátra — ezzel segíted a kutatást.</p>
 
@@ -97,7 +98,7 @@
 
         var DEFAULT_CONFIG = {
             project: {
-                title: 'WeeMap',
+                title: 'weemap',
                 cityPlaceholder: 'Szeged'
             },
             supabase: { url: 'https://ujcjjxiynmvznategkqa.supabase.co', anonKey: 'sb_publishable_jypOo0iOpr29521pm5Uezg_slw-70dD' }
@@ -115,7 +116,6 @@
 
         function initApp(config) {
             document.title = config.project.title + ' - Kérdőív';
-            document.getElementById('brand-title').textContent = config.project.title;
             document.getElementById('inp-city').placeholder = 'Pl. ' + config.project.cityPlaceholder;
             supabaseClient = window.supabase.createClient(config.supabase.url, config.supabase.anonKey);
         }
