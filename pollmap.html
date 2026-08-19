@@ -174,6 +174,7 @@
                 3. Ha végeztél a térképpel, küldd be a munkád.<br>
                 4. Beküldés után egy rövid kérdőív nyílik meg — azt is töltsd ki!<br>
             </p>
+            <p style="font-size: 13px; color: #888;">A halványabb foltok a térképen mások eddigi jelölései.</p>
             <button class="start-btn" onclick="closeModal()">Vágjunk bele!</button>
         </div>
     </div>
@@ -334,6 +335,34 @@
             if (!geom) return emptyFC();
             var feature = geom.type === 'Feature' ? geom : { type: 'Feature', properties: {}, geometry: geom };
             return { type: 'FeatureCollection', features: [feature] };
+        }
+
+        // Mások eddigi jelölései: halvány háttérréteg, a saját ecsetvonások
+        // alá rajzolva. Csak attitűd + geometria látszik belőle (a Supabase
+        // "drawings_public" nézete tudatosan nem ad ki user_id-t vagy
+        // kommentet) — nem kattintható, nem szerkeszthető.
+        function setupCommunityLayer() {
+            var colorMatch = ['match', ['get', 'attitude']];
+            ATTITUDES.forEach(function(att) { colorMatch.push(att, ATTITUDE_COLORS[att]); });
+            colorMatch.push('#999999');
+
+            map.addSource('community', { type: 'geojson', data: emptyFC() });
+            map.addLayer({ id: 'community-fill', type: 'fill', source: 'community', paint: { 'fill-color': colorMatch, 'fill-opacity': 0.15 } });
+            map.addLayer({ id: 'community-line', type: 'line', source: 'community', paint: { 'line-color': colorMatch, 'line-width': 1, 'line-opacity': 0.35 } });
+        }
+
+        function loadCommunityResults() {
+            supabaseClient.from('drawings_public').select('attitude, geom')
+            .then(function(result) {
+                if (result.error) throw result.error;
+                var features = (result.data || []).map(function(row) {
+                    return { type: 'Feature', properties: { attitude: row.attitude }, geometry: row.geom };
+                });
+                map.getSource('community').setData({ type: 'FeatureCollection', features: features });
+            })
+            .catch(function(error) {
+                console.warn('Nem sikerült betölteni a közösségi eredményeket:', error);
+            });
         }
 
         function setupPaintLayers() {
@@ -592,6 +621,8 @@
             map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left');
 
             map.on('load', function() {
+                setupCommunityLayer();
+                loadCommunityResults();
                 setupPaintLayers();
                 wirePointerEvents();
                 wireFeatureClickEditing();
