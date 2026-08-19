@@ -57,6 +57,15 @@
         .tool-btn i { margin-right: 10px; width: 20px; text-align: center; }
         .btn-eraser.active { background: #f89f9f !important; border-color: #dc3545 !important; color: #dc3545 !important; }
 
+        .brush-type-row { display: flex; gap: 6px; margin-top: 10px; }
+        .brush-type-btn {
+            flex: 1; padding: 7px 8px; border: 1px solid #ddd; background: #424242;
+            cursor: pointer; border-radius: 5px; font-size: 12.5px; text-align: center;
+            color: #ffffff; font-family: 'Text Me One'; transition: all 0.2s;
+        }
+        .brush-type-btn:hover { background: #1a1a1a; }
+        .brush-type-btn.active { background: #8ebdff; border-color: #007bff; color: #007bff; font-weight: bold; }
+
         .slider-label { display: block; font-size: 12px; color: #cccccc; margin: 12px 0 2px; }
         .slider-label input[type=range] { width: 100%; margin-top: 4px; accent-color: #8ebdff; }
 
@@ -96,7 +105,10 @@
         #survey-btn:hover { background: #0056b3; }
 
         /* --- KURZOROK ÉS EGYÉB --- */
-        .paint-cursor { cursor: crosshair !important; }
+        /* touch-action:none, mert a MapLibre saját touch-listenerei passive
+           módban futnak — onnan preventDefault()-tal nem lehet letiltani az
+           alap böngésző-gesztusokat (oldalgörgetés), csak CSS-ből. */
+        .paint-cursor { cursor: crosshair !important; touch-action: none; }
 
         /* MapLibre kontrollok sötét témához igazítva */
         .maplibregl-ctrl-group { background: #424242 !important; border: 1px solid #e0e0e0; }
@@ -221,6 +233,11 @@
             </button>
         </div>
 
+        <div class="brush-type-row">
+            <button class="brush-type-btn active" id="btn-brush-fuzzy" onclick="setBrushType('fuzzy')">🌫️ Fuzzy</button>
+            <button class="brush-type-btn" id="btn-brush-sharp" onclick="setBrushType('sharp')">✏️ Éles</button>
+        </div>
+
         <label class="slider-label">Ecset vastagság
             <input type="range" id="brushSizeInput" min="12" max="70" value="30">
         </label>
@@ -342,12 +359,8 @@
         var eraserActive = false;
         var painting = false;
         var brushSize = 30;
+        var brushType = 'fuzzy'; // 'fuzzy' | 'sharp'
         var pendingUpdates = {};
-
-        function hexToRgb(hex) {
-            var n = parseInt(hex.slice(1), 16);
-            return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
-        }
 
         function slug(s) {
             return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z]/g, '');
@@ -424,11 +437,18 @@
             var p = lngLatToCanvasXY(lngLat);
             if (p.x < -brushSize || p.x > PAINT_CANVAS_SIZE + brushSize || p.y < -brushSize || p.y > PAINT_CANVAS_SIZE + brushSize) return;
 
-            var grad = l.ictx.createRadialGradient(p.x, p.y, 0, p.x, p.y, brushSize);
-            grad.addColorStop(0, 'rgba(255,255,255,0.28)');
-            grad.addColorStop(1, 'rgba(255,255,255,0)');
             l.ictx.globalCompositeOperation = erase ? 'destination-out' : 'lighter';
-            l.ictx.fillStyle = grad;
+            if (erase || brushType === 'fuzzy') {
+                // Fuzzy: soft falloff across the whole radius — the transition IS the point.
+                var grad = l.ictx.createRadialGradient(p.x, p.y, 0, p.x, p.y, brushSize);
+                grad.addColorStop(0, 'rgba(255,255,255,0.28)');
+                grad.addColorStop(1, 'rgba(255,255,255,0)');
+                l.ictx.fillStyle = grad;
+            } else {
+                // Sharp: flat fill, no gradient — only the canvas's own ~1px
+                // anti-aliasing softens the edge, so it reads as a defined boundary.
+                l.ictx.fillStyle = 'rgba(255,255,255,0.9)';
+            }
             l.ictx.beginPath();
             l.ictx.arc(p.x, p.y, brushSize, 0, Math.PI * 2);
             l.ictx.fill();
@@ -456,6 +476,26 @@
             });
             map.on('mouseup', function() { painting = false; });
             document.addEventListener('mouseup', function() { painting = false; });
+
+            // Mobil érintés: a MapLibre saját touch-gesztusai (pan/zoom) le vannak
+            // tiltva festés közben (dragPan/touchZoomRotate.disable), de a nyers
+            // touch eseményeket külön kell figyelni a folyamatos húzáshoz —
+            // enélkül érintőképernyőn csak egy-egy pontot lehetett lerakni.
+            // Az oldalgörgetést a .paint-cursor CSS-osztály touch-action:none-ja
+            // tiltja, nem JS-es preventDefault (a MapLibre touch-listenerei
+            // passive módúak, onnan preventDefault()-tal nem megy).
+            map.on('touchstart', function(e) {
+                if (!currentAttitude && !eraserActive) return;
+                painting = true;
+                paintAt(e.lngLat);
+            });
+            map.on('touchmove', function(e) {
+                if (!painting) return;
+                paintAt(e.lngLat);
+            });
+            map.on('touchend', function() { painting = false; });
+            map.on('touchcancel', function() { painting = false; });
+            document.addEventListener('touchend', function() { painting = false; });
         }
 
         fetch('config.json')
@@ -506,6 +546,7 @@
             document.getElementById(ATTITUDE_BTN_ID[attitude]).classList.add('active');
 
             map.dragPan.disable();
+            map.touchZoomRotate.disable();
             document.getElementById('map').classList.add('paint-cursor');
 
             var commentBox = document.getElementById('attitude-comment');
@@ -524,6 +565,12 @@
             brushSize = +e.target.value;
         });
 
+        function setBrushType(type) {
+            brushType = type;
+            document.getElementById('btn-brush-fuzzy').classList.toggle('active', type === 'fuzzy');
+            document.getElementById('btn-brush-sharp').classList.toggle('active', type === 'sharp');
+        }
+
         function toggleEraser() {
             if (eraserActive) { stopAllTools(); return; }
 
@@ -534,6 +581,7 @@
             document.getElementById('attitude-comment').style.display = 'none';
 
             map.dragPan.disable();
+            map.touchZoomRotate.disable();
             document.getElementById('map').classList.add('paint-cursor');
             document.getElementById('status').innerText = "❌ Fesd át, amit törölni akarsz!";
         }
@@ -544,7 +592,7 @@
             painting = false;
             document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
             document.getElementById('attitude-comment').style.display = 'none';
-            if (map) map.dragPan.enable();
+            if (map) { map.dragPan.enable(); map.touchZoomRotate.enable(); }
             document.getElementById('map').classList.remove('paint-cursor');
             document.getElementById('status').innerText = "Válassz egy eszközt!";
         }
