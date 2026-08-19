@@ -354,8 +354,9 @@
         var SIMPLIFY_TOLERANCE_DEG = 0.00003; // ~3m — enyhe simítás a puffereléshez
 
         var map, SCRIPT_URL;
-        var strokeGeoJSON = {}; // attitude -> Feature<Polygon|MultiPolygon> | null
-        var comments = {};
+        var strokeFeatures = {}; // attitude -> [{ id, geometry, comment }] — egy tömbelem = egy húzott folt, saját szöveggel
+        var nextFeatureId = 1;
+        var activeFeatureRef = null; // { attitude, id } — melyik foltra vonatkozik épp a komment-mező
         var currentAttitude = null;
         var eraserActive = false;
         var painting = false;
@@ -384,13 +385,64 @@
                 map.addSource(sourceId, { type: 'geojson', data: emptyFC() });
                 map.addLayer({ id: sourceId + '-fill', type: 'fill', source: sourceId, paint: { 'fill-color': ATTITUDE_COLORS[att], 'fill-opacity': 0.4 } });
                 map.addLayer({ id: sourceId + '-line', type: 'line', source: sourceId, paint: { 'line-color': ATTITUDE_COLORS[att], 'line-width': 2 } });
-                strokeGeoJSON[att] = null;
-                comments[att] = '';
+                strokeFeatures[att] = [];
             });
 
             map.addSource('stroke-preview', { type: 'geojson', data: emptyFC() });
             map.addLayer({ id: 'stroke-preview-fill', type: 'fill', source: 'stroke-preview', paint: { 'fill-color': '#ffffff', 'fill-opacity': 0.3 } });
             map.addLayer({ id: 'stroke-preview-line', type: 'line', source: 'stroke-preview', paint: { 'line-color': '#ffffff', 'line-width': 2, 'line-dasharray': [2, 2] } });
+        }
+
+        // Böngésző mód (nincs eszköz kiválasztva): a már megrajzolt foltokra
+        // rá lehet kattintani, hogy utólag is szerkeszthető legyen a hozzájuk
+        // írt szöveg.
+        function wireFeatureClickEditing() {
+            ATTITUDES.forEach(function(att) {
+                var layerId = 'paint-' + slug(att) + '-fill';
+                map.on('click', layerId, function(e) {
+                    if (currentAttitude || eraserActive) return;
+                    setActiveFeature(att, e.features[0].properties.strokeId);
+                });
+                map.on('mouseenter', layerId, function() {
+                    if (currentAttitude || eraserActive) return;
+                    map.getCanvas().style.cursor = 'pointer';
+                });
+                map.on('mouseleave', layerId, function() {
+                    map.getCanvas().style.cursor = '';
+                });
+            });
+        }
+
+        function findFeature(att, id) {
+            var list = strokeFeatures[att] || [];
+            for (var i = 0; i < list.length; i++) {
+                if (list[i].id === id) return list[i];
+            }
+            return null;
+        }
+
+        function renderCategory(att) {
+            var fc = {
+                type: 'FeatureCollection',
+                features: strokeFeatures[att].map(function(f) {
+                    return { type: 'Feature', properties: { attitude: att, comment: f.comment, strokeId: f.id }, geometry: f.geometry };
+                })
+            };
+            map.getSource('paint-' + slug(att)).setData(fc);
+        }
+
+        function hideCommentBox() {
+            document.getElementById('attitude-comment').style.display = 'none';
+        }
+
+        function setActiveFeature(att, id) {
+            var f = findFeature(att, id);
+            if (!f) { activeFeatureRef = null; hideCommentBox(); return; }
+            activeFeatureRef = { attitude: att, id: id };
+            var commentBox = document.getElementById('attitude-comment');
+            commentBox.style.display = 'block';
+            commentBox.placeholder = 'Írj pár szót erről a foltról (opcionális)';
+            commentBox.value = f.comment || '';
         }
 
         function effectiveRadiusKm() {
@@ -427,23 +479,45 @@
             });
         }
 
-        function mergeIntoCategory(att, polygon, erase) {
+        // Minden ecsetvonás önálló feature marad saját szöveggel — nincs
+        // automatikus union-nal összeolvasztás, hogy utólag is külön lehessen
+        // kommentálni ugyanannak a kategóriának az egyes foltjait.
+        function addStrokeFeature(att, polygon) {
             if (!polygon) return;
-            var existing = strokeGeoJSON[att];
-            var result;
-            try {
-                if (erase) {
-                    if (!existing) return;
-                    result = turf.difference(existing, polygon);
-                } else {
-                    result = existing ? turf.union(existing, polygon) : polygon;
+            var id = nextFeatureId++;
+            strokeFeatures[att].push({ id: id, geometry: polygon.geometry || polygon, comment: '' });
+            renderCategory(att);
+            setActiveFeature(att, id);
+        }
+
+        function eraseFromAll(erasePolygon) {
+            if (!erasePolygon) return;
+            ATTITUDES.forEach(function(att) {
+                var list = strokeFeatures[att];
+                var changed = false;
+                for (var i = list.length - 1; i >= 0; i--) {
+                    var f = list[i];
+                    var result;
+                    try {
+                        result = turf.difference({ type: 'Feature', properties: {}, geometry: f.geometry }, erasePolygon);
+                    } catch (err) {
+                        console.warn('Radír művelet sikertelen, ez a folt változatlan marad:', err);
+                        continue;
+                    }
+                    if (!result) {
+                        list.splice(i, 1);
+                        if (activeFeatureRef && activeFeatureRef.attitude === att && activeFeatureRef.id === f.id) {
+                            activeFeatureRef = null;
+                            hideCommentBox();
+                        }
+                        changed = true;
+                    } else {
+                        f.geometry = result.geometry;
+                        changed = true;
+                    }
                 }
-            } catch (err) {
-                console.warn('Geometria művelet sikertelen (' + (erase ? 'radír' : 'festés') + '), a réteg változatlan marad:', err);
-                return;
-            }
-            strokeGeoJSON[att] = result || null;
-            map.getSource('paint-' + slug(att)).setData(featureCollectionOf(result));
+                if (changed) renderCategory(att);
+            });
         }
 
         function beginStroke(lngLat, point) {
@@ -469,9 +543,9 @@
             if (activeStrokePoints.length === 0) return;
             var buffered = bufferOfActiveStroke();
             if (currentAttitude) {
-                mergeIntoCategory(currentAttitude, buffered, false);
+                addStrokeFeature(currentAttitude, buffered);
             } else if (eraserActive) {
-                ATTITUDES.forEach(function(att) { mergeIntoCategory(att, buffered, true); });
+                eraseFromAll(buffered);
             }
             activeStrokePoints = [];
             lastStrokeScreenPoint = null;
@@ -542,6 +616,7 @@
             map.on('load', function() {
                 setupPaintLayers();
                 wirePointerEvents();
+                wireFeatureClickEditing();
 
                 if (window.matchMedia('(max-width: 680px)').matches) {
                     document.getElementById('survey-box').classList.add('collapsed');
@@ -551,10 +626,14 @@
             });
         }
 
-        // Eszközváltás
+        // Eszközváltás — ha a már aktív eszközre kattintanak újra, kilépünk
+        // "böngésző" módba, hogy rá lehessen kattintani a kész foltokra.
         function selectAttitude(attitude) {
+            if (currentAttitude === attitude) { stopAllTools(); return; }
+
             currentAttitude = attitude;
             eraserActive = false;
+            hideCommentBox();
 
             document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
             document.getElementById(ATTITUDE_BTN_ID[attitude]).classList.add('active');
@@ -563,16 +642,13 @@
             map.touchZoomRotate.disable();
             document.getElementById('map').classList.add('paint-cursor');
 
-            var commentBox = document.getElementById('attitude-comment');
-            commentBox.style.display = 'block';
-            commentBox.placeholder = 'Miért „' + attitude + '"? (opcionális)';
-            commentBox.value = comments[attitude] || '';
-
             document.getElementById('status').innerText = "Húzd az ecsetet a térképre!";
         }
 
         document.getElementById('attitude-comment').addEventListener('input', function(e) {
-            if (currentAttitude) comments[currentAttitude] = e.target.value;
+            if (!activeFeatureRef) return;
+            var f = findFeature(activeFeatureRef.attitude, activeFeatureRef.id);
+            if (f) f.comment = e.target.value;
         });
 
         document.getElementById('brushSizeInput').addEventListener('input', function(e) {
@@ -586,7 +662,7 @@
             eraserActive = true;
             document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
             document.getElementById('btn-eraser').classList.add('active');
-            document.getElementById('attitude-comment').style.display = 'none';
+            hideCommentBox();
 
             map.dragPan.disable();
             map.touchZoomRotate.disable();
@@ -599,7 +675,7 @@
             eraserActive = false;
             painting = false;
             document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
-            document.getElementById('attitude-comment').style.display = 'none';
+            hideCommentBox();
             if (map) { map.dragPan.enable(); map.touchZoomRotate.enable(); }
             document.getElementById('map').classList.remove('paint-cursor');
             document.getElementById('status').innerText = "Válassz egy eszközt!";
@@ -645,14 +721,13 @@
             var features = [];
 
             ATTITUDES.forEach(function(att) {
-                var geom = strokeGeoJSON[att];
-                if (geom) {
+                strokeFeatures[att].forEach(function(f) {
                     features.push({
                         type: 'Feature',
-                        properties: { attitude: att, comment: comments[att] || '' },
-                        geometry: geom.geometry || geom
+                        properties: { attitude: att, comment: f.comment || '' },
+                        geometry: f.geometry
                     });
-                }
+                });
             });
 
             if (features.length === 0) {
