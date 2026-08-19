@@ -196,7 +196,7 @@
             <p id="intro-text">Ez egy közösségi térképező alkalmazás, ahol a városi átalakulásokkal kapcsolatos véleményedre vagyunk kíváncsiak.</p>
             <p style="font-size: 16px; color: #aaa;">
                 1. Válaszd ki az eszköztárban, hogy milyen attitűddel értékelsz.<br>
-                2. Fesd rá az ecsettel a térképre, ahol így érzel — a szél elhalványul, több áthúzás mélyíti.<br>
+                2. Húzd az ecsetet a térképen, ahol így érzel — az eszköztárban állítható a vastagsága.<br>
                 3. Ha végeztél a térképpel, küldd be a munkád.<br>
                 4. Végül töltsd ki a demográfiai panelt is.<br>
             </p>
@@ -234,12 +234,12 @@
         </div>
 
         <div class="brush-type-row">
-            <button class="brush-type-btn active" id="btn-brush-fuzzy" onclick="setBrushType('fuzzy')">🌫️ Fuzzy</button>
+            <button class="brush-type-btn active" id="btn-brush-fuzzy" onclick="setBrushType('fuzzy')">🌫️ Puha</button>
             <button class="brush-type-btn" id="btn-brush-sharp" onclick="setBrushType('sharp')">✏️ Éles</button>
         </div>
 
         <label class="slider-label">Ecset vastagság
-            <input type="range" id="brushSizeInput" min="3" max="40" value="4">
+            <input type="range" id="brushSizeInput" min="8" max="150" value="20">
         </label>
 
         <textarea id="attitude-comment" class="brush-comment" placeholder="Miért érzed így? (opcionális)"></textarea>
@@ -275,6 +275,7 @@
 
     <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
     <script src="https://unpkg.com/pmtiles@3.0.7/dist/pmtiles.js"></script>
+    <script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
     <script>
         function closeModal() {
             document.getElementById('intro-modal').style.display = 'none';
@@ -304,7 +305,7 @@
                 introText: 'Ez egy közösségi térképező alkalmazás, ahol a városi átalakulásokkal kapcsolatos véleményedre vagyunk kíváncsiak.',
                 cityPlaceholder: 'Szeged'
             },
-            map: { center: [46.2530, 20.1414], zoom: 14, paintAreaKm: 8 },
+            map: { center: [46.2530, 20.1414], zoom: 14 },
             submitUrl: 'https://script.google.com/macros/s/AKfycbw3vipZJpoOP5Zyu_H3DtDYKBODidPhHisulq_inHlm9SqP7_Y1TJMJg6MCMEHcPFuk/exec'
         };
 
@@ -333,10 +334,11 @@
             };
         }
 
-        // --- Fuzzy ecset: egyetlen rajzeszköz, a "szín" csak azt mondja meg,
-        // melyik attitűd-réteget fessük. Kategóriánként két 0-1 canvas van:
-        // egy fehér "intensity" (ebbe fest az ecset, additív, telítődik),
-        // és egy színezett "display" (ebből mintázza a MapLibre canvas-forrás).
+        // --- Ecset = szabadkézi vonal, amit egy vastagság-sugárral vektor
+        // polygonná "pufferelünk" (turf.buffer), nem raszter canvas-be festünk.
+        // Így a kimenet mindvégig valódi GeoJSON polygon, közvetlenül
+        // felhasználható QGIS-ben elemzéshez — nem egy egyedi rács-formátum.
+        // Kategóriánként a strokeok union-nal összeolvadnak egy (multi)polygonná.
         var ATTITUDES = ['Pozitív', 'Negatív', 'Hiány', 'Átalakuló terület'];
         var ATTITUDE_COLORS = {
             'Pozitív': '#28a745',
@@ -350,132 +352,152 @@
             'Hiány': 'btn-missing',
             'Átalakuló terület': 'btn-polygon'
         };
-        var PAINT_CANVAS_SIZE = 480;
 
-        var map, SCRIPT_URL, paintBounds;
-        var layers = {};
+        // Két, egymást követő rögzített pont közti minimum távolság KÉPERNYŐ-
+        // pixelben (nem méterben — az zoomtól függene). Ez szűri ki a kézremegést
+        // (mobilon állva tartott ujj apró jitterét), zoomszinttől függetlenül.
+        var MIN_POINT_PIXEL_DIST = 5;
+        var SIMPLIFY_TOLERANCE_DEG = 0.00003; // ~3m — enyhe simítás a puffereléshez
+
+        var map, SCRIPT_URL;
+        var strokeGeoJSON = {}; // attitude -> Feature<Polygon|MultiPolygon> | null
         var comments = {};
         var currentAttitude = null;
         var eraserActive = false;
         var painting = false;
-        var brushSize = 4;
-        var brushType = 'fuzzy'; // 'fuzzy' | 'sharp'
-        var pendingUpdates = {};
+        var brushRadiusM = 20;
+        var brushType = 'fuzzy'; // 'fuzzy' | 'sharp' — csak a puffer szélessége/simasága, nem gradiens
+        var activeStrokePoints = [];
+        var lastStrokeScreenPoint = null;
+        var previewUpdateScheduled = false;
 
         function slug(s) {
             return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z]/g, '');
         }
 
-        function computePaintBounds(center, areaKm) {
-            var halfKm = areaKm / 2;
-            var dLat = halfKm / 111.32;
-            var dLng = halfKm / (111.32 * Math.cos(center[0] * Math.PI / 180));
-            return {
-                north: center[0] + dLat, south: center[0] - dLat,
-                east: center[1] + dLng, west: center[1] - dLng
-            };
+        function emptyFC() {
+            return { type: 'FeatureCollection', features: [] };
         }
 
-        function setupPaintLayers(config) {
-            var areaKm = config.map.paintAreaKm || 8;
-            paintBounds = computePaintBounds(config.map.center, areaKm);
-            var coords = [
-                [paintBounds.west, paintBounds.north],
-                [paintBounds.east, paintBounds.north],
-                [paintBounds.east, paintBounds.south],
-                [paintBounds.west, paintBounds.south]
-            ];
+        function featureCollectionOf(geom) {
+            if (!geom) return emptyFC();
+            var feature = geom.type === 'Feature' ? geom : { type: 'Feature', properties: {}, geometry: geom };
+            return { type: 'FeatureCollection', features: [feature] };
+        }
 
+        function setupPaintLayers() {
             ATTITUDES.forEach(function(att) {
-                var intensity = document.createElement('canvas');
-                intensity.width = PAINT_CANVAS_SIZE; intensity.height = PAINT_CANVAS_SIZE;
-                var display = document.createElement('canvas');
-                display.width = PAINT_CANVAS_SIZE; display.height = PAINT_CANVAS_SIZE;
                 var sourceId = 'paint-' + slug(att);
-
-                map.addSource(sourceId, { type: 'canvas', canvas: display, coordinates: coords, animate: true });
-                map.addLayer({ id: sourceId, type: 'raster', source: sourceId, paint: { 'raster-opacity': 0.78 } });
-
-                layers[att] = {
-                    intensity: intensity, ictx: intensity.getContext('2d', { willReadFrequently: true }),
-                    display: display, dctx: display.getContext('2d'),
-                    color: ATTITUDE_COLORS[att]
-                };
+                map.addSource(sourceId, { type: 'geojson', data: emptyFC() });
+                map.addLayer({ id: sourceId + '-fill', type: 'fill', source: sourceId, paint: { 'fill-color': ATTITUDE_COLORS[att], 'fill-opacity': 0.4 } });
+                map.addLayer({ id: sourceId + '-line', type: 'line', source: sourceId, paint: { 'line-color': ATTITUDE_COLORS[att], 'line-width': 2 } });
+                strokeGeoJSON[att] = null;
                 comments[att] = '';
             });
+
+            map.addSource('stroke-preview', { type: 'geojson', data: emptyFC() });
+            map.addLayer({ id: 'stroke-preview-fill', type: 'fill', source: 'stroke-preview', paint: { 'fill-color': '#ffffff', 'fill-opacity': 0.3 } });
+            map.addLayer({ id: 'stroke-preview-line', type: 'line', source: 'stroke-preview', paint: { 'line-color': '#ffffff', 'line-width': 2, 'line-dasharray': [2, 2] } });
         }
 
-        function renderLayer(att) {
-            var l = layers[att];
-            l.dctx.clearRect(0, 0, PAINT_CANVAS_SIZE, PAINT_CANVAS_SIZE);
-            l.dctx.globalCompositeOperation = 'source-over';
-            l.dctx.fillStyle = l.color;
-            l.dctx.fillRect(0, 0, PAINT_CANVAS_SIZE, PAINT_CANVAS_SIZE);
-            l.dctx.globalCompositeOperation = 'destination-in';
-            l.dctx.drawImage(l.intensity, 0, 0);
-            l.dctx.globalCompositeOperation = 'source-over';
+        function effectiveRadiusKm() {
+            var r = brushType === 'fuzzy' ? brushRadiusM * 1.4 : brushRadiusM;
+            return r / 1000;
         }
 
-        function scheduleLayerUpdate(att) {
-            if (pendingUpdates[att]) return;
-            pendingUpdates[att] = true;
+        function bufferSteps() {
+            return brushType === 'sharp' ? 6 : 16;
+        }
+
+        function bufferOfActiveStroke() {
+            var radiusKm = effectiveRadiusKm();
+            var steps = bufferSteps();
+            if (activeStrokePoints.length === 1) {
+                return turf.circle(activeStrokePoints[0], radiusKm, { units: 'kilometers', steps: steps });
+            }
+            var line = turf.lineString(activeStrokePoints);
+            var simplified = turf.simplify(line, { tolerance: SIMPLIFY_TOLERANCE_DEG, highQuality: true });
+            return turf.buffer(simplified, radiusKm, { units: 'kilometers', steps: steps });
+        }
+
+        function updateStrokePreview() {
+            if (activeStrokePoints.length === 0) return;
+            var buffered = bufferOfActiveStroke();
+            map.getSource('stroke-preview').setData(featureCollectionOf(buffered));
+        }
+
+        function scheduleStrokePreviewUpdate() {
+            if (previewUpdateScheduled) return;
+            previewUpdateScheduled = true;
             requestAnimationFrame(function() {
-                pendingUpdates[att] = false;
-                renderLayer(att);
+                previewUpdateScheduled = false;
+                updateStrokePreview();
             });
         }
 
-        function lngLatToCanvasXY(lngLat) {
-            var x = (lngLat.lng - paintBounds.west) / (paintBounds.east - paintBounds.west) * PAINT_CANVAS_SIZE;
-            var y = (paintBounds.north - lngLat.lat) / (paintBounds.north - paintBounds.south) * PAINT_CANVAS_SIZE;
-            return { x: x, y: y };
+        function mergeIntoCategory(att, polygon, erase) {
+            if (!polygon) return;
+            var existing = strokeGeoJSON[att];
+            var result;
+            try {
+                if (erase) {
+                    if (!existing) return;
+                    result = turf.difference(existing, polygon);
+                } else {
+                    result = existing ? turf.union(existing, polygon) : polygon;
+                }
+            } catch (err) {
+                console.warn('Geometria művelet sikertelen (' + (erase ? 'radír' : 'festés') + '), a réteg változatlan marad:', err);
+                return;
+            }
+            strokeGeoJSON[att] = result || null;
+            map.getSource('paint-' + slug(att)).setData(featureCollectionOf(result));
         }
 
-        function paintOne(att, lngLat, erase) {
-            var l = layers[att];
-            if (!l) return;
-            var p = lngLatToCanvasXY(lngLat);
-            if (p.x < -brushSize || p.x > PAINT_CANVAS_SIZE + brushSize || p.y < -brushSize || p.y > PAINT_CANVAS_SIZE + brushSize) return;
-
-            l.ictx.globalCompositeOperation = erase ? 'destination-out' : 'lighter';
-            if (erase || brushType === 'fuzzy') {
-                // Fuzzy: soft falloff across the whole radius — the transition IS the point.
-                var grad = l.ictx.createRadialGradient(p.x, p.y, 0, p.x, p.y, brushSize);
-                grad.addColorStop(0, 'rgba(255,255,255,0.28)');
-                grad.addColorStop(1, 'rgba(255,255,255,0)');
-                l.ictx.fillStyle = grad;
-            } else {
-                // Sharp: flat fill, no gradient — only the canvas's own ~1px
-                // anti-aliasing softens the edge, so it reads as a defined boundary.
-                l.ictx.fillStyle = 'rgba(255,255,255,0.9)';
+        function beginStroke(lngLat, point) {
+            activeStrokePoints = [[lngLat.lng, lngLat.lat]];
+            lastStrokeScreenPoint = point;
+            if (currentAttitude) {
+                map.setPaintProperty('stroke-preview-fill', 'fill-color', ATTITUDE_COLORS[currentAttitude]);
+                map.setPaintProperty('stroke-preview-line', 'line-color', ATTITUDE_COLORS[currentAttitude]);
             }
-            l.ictx.beginPath();
-            l.ictx.arc(p.x, p.y, brushSize, 0, Math.PI * 2);
-            l.ictx.fill();
-            l.ictx.globalCompositeOperation = 'source-over';
-            scheduleLayerUpdate(att);
+            scheduleStrokePreviewUpdate();
         }
 
-        function paintAt(lngLat) {
-            if (eraserActive) {
-                ATTITUDES.forEach(function(att) { paintOne(att, lngLat, true); });
-            } else if (currentAttitude) {
-                paintOne(currentAttitude, lngLat, false);
+        function extendStroke(lngLat, point) {
+            if (!lastStrokeScreenPoint) return;
+            var dx = point.x - lastStrokeScreenPoint.x, dy = point.y - lastStrokeScreenPoint.y;
+            if (Math.sqrt(dx * dx + dy * dy) < MIN_POINT_PIXEL_DIST) return;
+            activeStrokePoints.push([lngLat.lng, lngLat.lat]);
+            lastStrokeScreenPoint = point;
+            scheduleStrokePreviewUpdate();
+        }
+
+        function endStroke() {
+            if (activeStrokePoints.length === 0) return;
+            var buffered = bufferOfActiveStroke();
+            if (currentAttitude) {
+                mergeIntoCategory(currentAttitude, buffered, false);
+            } else if (eraserActive) {
+                ATTITUDES.forEach(function(att) { mergeIntoCategory(att, buffered, true); });
             }
+            activeStrokePoints = [];
+            lastStrokeScreenPoint = null;
+            map.getSource('stroke-preview').setData(emptyFC());
         }
 
         function wirePointerEvents() {
             map.on('mousedown', function(e) {
                 if (!currentAttitude && !eraserActive) return;
                 painting = true;
-                paintAt(e.lngLat);
+                beginStroke(e.lngLat, e.point);
             });
             map.on('mousemove', function(e) {
                 if (!painting) return;
-                paintAt(e.lngLat);
+                extendStroke(e.lngLat, e.point);
             });
-            map.on('mouseup', function() { painting = false; });
-            document.addEventListener('mouseup', function() { painting = false; });
+            map.on('mouseup', function() { if (painting) { painting = false; endStroke(); } });
+            document.addEventListener('mouseup', function() { if (painting) { painting = false; endStroke(); } });
 
             // Mobil érintés: a MapLibre saját touch-gesztusai (pan/zoom) le vannak
             // tiltva festés közben (dragPan/touchZoomRotate.disable), de a nyers
@@ -487,15 +509,15 @@
             map.on('touchstart', function(e) {
                 if (!currentAttitude && !eraserActive) return;
                 painting = true;
-                paintAt(e.lngLat);
+                beginStroke(e.lngLat, e.point);
             });
             map.on('touchmove', function(e) {
                 if (!painting) return;
-                paintAt(e.lngLat);
+                extendStroke(e.lngLat, e.point);
             });
-            map.on('touchend', function() { painting = false; });
-            map.on('touchcancel', function() { painting = false; });
-            document.addEventListener('touchend', function() { painting = false; });
+            map.on('touchend', function() { if (painting) { painting = false; endStroke(); } });
+            map.on('touchcancel', function() { if (painting) { painting = false; endStroke(); } });
+            document.addEventListener('touchend', function() { if (painting) { painting = false; endStroke(); } });
         }
 
         fetch('config.json')
@@ -526,7 +548,7 @@
             map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left');
 
             map.on('load', function() {
-                setupPaintLayers(config);
+                setupPaintLayers();
                 wirePointerEvents();
 
                 if (window.matchMedia('(max-width: 680px)').matches) {
@@ -554,7 +576,7 @@
             commentBox.placeholder = 'Miért „' + attitude + '"? (opcionális)';
             commentBox.value = comments[attitude] || '';
 
-            document.getElementById('status').innerText = "Fesd rá a térképre!";
+            document.getElementById('status').innerText = "Húzd az ecsetet a térképre!";
         }
 
         document.getElementById('attitude-comment').addEventListener('input', function(e) {
@@ -562,7 +584,7 @@
         });
 
         document.getElementById('brushSizeInput').addEventListener('input', function(e) {
-            brushSize = +e.target.value;
+            brushRadiusM = +e.target.value;
         });
 
         function setBrushType(type) {
@@ -583,7 +605,7 @@
             map.dragPan.disable();
             map.touchZoomRotate.disable();
             document.getElementById('map').classList.add('paint-cursor');
-            document.getElementById('status').innerText = "❌ Fesd át, amit törölni akarsz!";
+            document.getElementById('status').innerText = "❌ Húzd át, amit törölni akarsz!";
         }
 
         function stopAllTools() {
@@ -632,59 +654,30 @@
             });
         }
 
-        // Az ecsettel festett réteget egy ritka, cellánkénti (x,y,érték) rácsra
-        // mintázzuk exporthoz — ez felel meg a koncepció "fuzzy tagsági rács"
-        // adatmodelljének, nem a nyers pixeleknek.
-        var EXPORT_GRID_CELLS = 40;
-
-        function buildSparseGrid(att) {
-            var l = layers[att];
-            var data = l.ictx.getImageData(0, 0, PAINT_CANVAS_SIZE, PAINT_CANVAS_SIZE).data;
-            var cellPx = PAINT_CANVAS_SIZE / EXPORT_GRID_CELLS;
-            var sums = new Float32Array(EXPORT_GRID_CELLS * EXPORT_GRID_CELLS);
-            var counts = new Uint16Array(EXPORT_GRID_CELLS * EXPORT_GRID_CELLS);
-
-            for (var y = 0; y < PAINT_CANVAS_SIZE; y++) {
-                var gy = Math.min(EXPORT_GRID_CELLS - 1, Math.floor(y / cellPx));
-                for (var x = 0; x < PAINT_CANVAS_SIZE; x++) {
-                    var gx = Math.min(EXPORT_GRID_CELLS - 1, Math.floor(x / cellPx));
-                    var a = data[(y * PAINT_CANVAS_SIZE + x) * 4 + 3] / 255;
-                    var gi = gy * EXPORT_GRID_CELLS + gx;
-                    sums[gi] += a;
-                    counts[gi]++;
-                }
-            }
-
-            var cells = [];
-            for (var i = 0; i < sums.length; i++) {
-                var avg = counts[i] ? sums[i] / counts[i] : 0;
-                if (avg > 0.03) {
-                    cells.push([i % EXPORT_GRID_CELLS, Math.floor(i / EXPORT_GRID_CELLS), Math.round(avg * 100) / 100]);
-                }
-            }
-            return cells;
-        }
-
         function submitDrawing() {
             var statusDiv = document.getElementById('status');
-            var paintedLayers = [];
+            var features = [];
 
             ATTITUDES.forEach(function(att) {
-                var cells = buildSparseGrid(att);
-                if (cells.length > 0) {
-                    paintedLayers.push({ attitude: att, comment: comments[att] || '', cells: cells });
+                var geom = strokeGeoJSON[att];
+                if (geom) {
+                    features.push({
+                        type: 'Feature',
+                        properties: { attitude: att, comment: comments[att] || '' },
+                        geometry: geom.geometry || geom
+                    });
                 }
             });
 
-            if (paintedLayers.length === 0) {
-                statusDiv.innerHTML = "<span style='color:#ffc107'>⚠️ Üres a térkép! Előbb fess rá valamit.</span>";
+            if (features.length === 0) {
+                statusDiv.innerHTML = "<span style='color:#ffc107'>⚠️ Üres a térkép! Előbb húzz rá valamit.</span>";
                 return;
             }
 
             var payload = {
                 dataType: 'drawing',
                 userID: USER_ID,
-                paint: { bounds: paintBounds, gridSize: EXPORT_GRID_CELLS, layers: paintedLayers }
+                geojson: { type: 'FeatureCollection', features: features }
             };
 
             var btn = document.querySelector('.submit-btn');
