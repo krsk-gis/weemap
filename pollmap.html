@@ -270,6 +270,7 @@
     <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
     <script src="https://unpkg.com/pmtiles@3.0.7/dist/pmtiles.js"></script>
     <script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script>
         function closeModal() {
             document.getElementById('intro-modal').style.display = 'none';
@@ -300,7 +301,7 @@
                 cityPlaceholder: 'Szeged'
             },
             map: { center: [46.2530, 20.1414], zoom: 14 },
-            submitUrl: 'https://script.google.com/macros/s/AKfycbw3vipZJpoOP5Zyu_H3DtDYKBODidPhHisulq_inHlm9SqP7_Y1TJMJg6MCMEHcPFuk/exec'
+            supabase: { url: 'https://ujcjjxiynmvznategkqa.supabase.co', anonKey: 'sb_publishable_jypOo0iOpr29521pm5Uezg_slw-70dD' }
         };
 
         // pmtiles protokoll regisztrálása — egyelőre raszteres OSM alaptérképet
@@ -353,7 +354,7 @@
         var MIN_POINT_PIXEL_DIST = 5;
         var SIMPLIFY_TOLERANCE_DEG = 0.00003; // ~3m — enyhe simítás a puffereléshez
 
-        var map, SCRIPT_URL;
+        var map, supabaseClient;
         var strokeFeatures = {}; // attitude -> [{ id, geometry, comment }] — egy tömbelem = egy húzott folt, saját szöveggel
         var nextFeatureId = 1;
         var activeFeatureRef = null; // { attitude, id } — melyik foltra vonatkozik épp a komment-mező
@@ -601,7 +602,7 @@
             document.getElementById('brand-title').textContent = config.project.title;
             document.getElementById('brand-subtitle').textContent = config.project.subtitle;
             document.getElementById('inp-city').placeholder = 'Pl. ' + config.project.cityPlaceholder;
-            SCRIPT_URL = config.submitUrl;
+            supabaseClient = window.supabase.createClient(config.supabase.url, config.supabase.anonKey);
 
             // Térkép fókuszálása a projekt konfigurált középpontjára
             // (a config [lat, lng] sorrendet tárol, a MapLibre [lng, lat]-et vár)
@@ -681,78 +682,40 @@
             document.getElementById('status').innerText = "Válassz egy eszközt!";
         }
 
-        // 4. BEKÜLDÉS (Google Apps Script hívás) — SCRIPT_URL az initApp()-ban áll be config-ból
-        const SUBMIT_TIMEOUT_MS = 15000;
-
-        function timeoutSignal() {
-            return (window.AbortSignal && AbortSignal.timeout) ? AbortSignal.timeout(SUBMIT_TIMEOUT_MS) : undefined;
-        }
-
-        // Apps Script webapp responses don't reliably carry CORS headers, so a
-        // plain 'cors' fetch may fail even when the submission itself would have
-        // succeeded. We try 'cors' first so real HTTP errors are detectable; if
-        // that throws (CORS-blocked or otherwise), we fall back to 'no-cors' so
-        // the data still reaches the backend — just without a confirmed status.
-        function postToScript(payload) {
-            var body = JSON.stringify(payload);
-            return fetch(SCRIPT_URL, {
-                method: 'POST', mode: 'cors',
-                headers: { 'Content-Type': 'text/plain' },
-                body: body,
-                signal: timeoutSignal()
-            })
-            .then(response => {
-                if (!response.ok) throw new Error('Szerver hiba: HTTP ' + response.status);
-                return { confirmed: true };
-            })
-            .catch(() => {
-                return fetch(SCRIPT_URL, {
-                    method: 'POST', mode: 'no-cors',
-                    headers: { 'Content-Type': 'text/plain' },
-                    body: body,
-                    signal: timeoutSignal()
-                })
-                .then(() => ({ confirmed: false }));
-            });
-        }
-
+        // 4. BEKÜLDÉS (Supabase) — a supabaseClient az initApp()-ban jön létre config-ból.
+        // A "drawings" tábla geom oszlopa natív PostGIS geometry; a PostGIS json→geometry
+        // cast-ja miatt egy nyers GeoJSON geometria objektum közvetlenül beszúrható bele.
         function submitDrawing() {
             var statusDiv = document.getElementById('status');
-            var features = [];
+            var rows = [];
 
             ATTITUDES.forEach(function(att) {
                 strokeFeatures[att].forEach(function(f) {
-                    features.push({
-                        type: 'Feature',
-                        properties: { attitude: att, comment: f.comment || '' },
-                        geometry: f.geometry
+                    rows.push({
+                        user_id: USER_ID,
+                        attitude: att,
+                        comment: f.comment || '',
+                        geom: f.geometry
                     });
                 });
             });
 
-            if (features.length === 0) {
+            if (rows.length === 0) {
                 statusDiv.innerHTML = "<span style='color:#ffc107'>⚠️ Üres a térkép! Előbb húzz rá valamit.</span>";
                 return;
             }
 
-            var payload = {
-                dataType: 'drawing',
-                userID: USER_ID,
-                geojson: { type: 'FeatureCollection', features: features }
-            };
-
             var btn = document.querySelector('.submit-btn');
             btn.disabled = true; btn.innerText = "Küldés folyamatban...";
 
-            postToScript(payload)
-            .then(result => {
-                statusDiv.innerHTML = result.confirmed
-                    ? "<span style='color:#94d3a2'>✅ Sikeres beküldés! Köszönjük.</span>"
-                    : "<span style='color:#94d3a2'>✅ Elküldve.</span> <span style='color:#aaa'>(Visszaigazolás nem elérhető — ha bizonytalan vagy, nyugodtan küldd el újra.)</span>";
+            supabaseClient.from('drawings').insert(rows)
+            .then(function(result) {
+                if (result.error) throw result.error;
+                statusDiv.innerHTML = "<span style='color:#94d3a2'>✅ Sikeres beküldés! Köszönjük.</span>";
                 btn.innerText = "Beküldve";
                 setTimeout(() => { btn.disabled = false; btn.innerText = "✅ Térkép beküldése"; }, 5000);
             })
-            .catch(error => {
+            .catch(function(error) {
                 console.error(error);
                 statusDiv.innerHTML = "<span style='color:#dc3545'>❌ Nem sikerült elküldeni. Próbáld újra.</span>";
                 btn.disabled = false; btn.innerText = "✅ Térkép beküldése";
@@ -773,20 +736,17 @@
             btn.innerText = "Küldés...";
             btn.disabled = true;
 
-            var payload = {
-                dataType: 'survey',
-                userID: USER_ID,
-                age: age,
+            supabaseClient.from('surveys').insert([{
+                user_id: USER_ID,
+                age: parseInt(age, 10),
                 gender: gender,
                 city: city
-            };
-
-            postToScript(payload)
-            .then(result => {
-                var note = result.confirmed ? '' : " <span style='color:#aaa; font-size:12px'>(visszaigazolás nem elérhető)</span>";
-                document.getElementById('survey-box').innerHTML = "<h4 style='color:#28a745; text-align:center; margin-top:20px;'>Köszönjük! ✅</h4><p style='text-align:center; color:#ccc'>A demográfiai adataidat rögzítettük." + note + "</p>";
+            }])
+            .then(function(result) {
+                if (result.error) throw result.error;
+                document.getElementById('survey-box').innerHTML = "<h4 style='color:#28a745; text-align:center; margin-top:20px;'>Köszönjük! ✅</h4><p style='text-align:center; color:#ccc'>A demográfiai adataidat rögzítettük.</p>";
             })
-            .catch(error => { console.error(error); btn.innerText = "Nem sikerült, próbáld újra"; btn.disabled = false; });
+            .catch(function(error) { console.error(error); btn.innerText = "Nem sikerült, próbáld újra"; btn.disabled = false; });
         }
     </script>
 </body>
