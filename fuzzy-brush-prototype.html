@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WeeMap — Fuzzy ecset prototípus</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  :root{
+    --paper:#0B1315; --surface:#111E20; --sunk:#16262A;
+    --ink:#E3EBEA; --ink-soft:#C2D1D0; --muted:#8EA3A6;
+    --line:#26393C; --accent:#0F6F6A; --accent-ink:#52C6B9;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; height:100%; background:var(--paper); color:var(--ink);
+    font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+  #map { position:absolute; inset:0; background:var(--sunk); }
+  #map.brush-active { cursor: crosshair; }
+
+  #panel {
+    position:absolute; top:16px; left:16px; z-index:1000; width:280px;
+    background:var(--surface); border:1px solid var(--line); border-radius:10px;
+    padding:18px; box-shadow:0 8px 28px rgba(0,0,0,.45);
+  }
+  #panel h1 { margin:0 0 4px; font-size:16px; font-weight:700; color:var(--ink); }
+  #panel .sub { margin:0 0 14px; font-size:12px; color:var(--muted); line-height:1.5; }
+
+  .row { margin-bottom:12px; }
+  .tool {
+    display:flex; align-items:center; justify-content:center; gap:8px; width:100%;
+    padding:9px 10px; margin-bottom:8px; border:1px solid var(--line); background:var(--sunk);
+    color:var(--ink); border-radius:6px; font-size:13.5px; cursor:pointer; transition:all .15s;
+  }
+  .tool:hover { background:#1b2d30; }
+  .tool.active { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+  .tool.danger:hover { background:#3a1a1c; border-color:#7a2f33; }
+
+  label.slider { display:block; font-size:12px; color:var(--muted); margin:10px 0 4px; }
+  label.slider b { color:var(--accent-ink); font-weight:600; }
+  input[type=range] { width:100%; accent-color: var(--accent-ink); }
+
+  #stats {
+    margin-top:14px; padding-top:12px; border-top:1px solid var(--line);
+    font-size:12.5px; color:var(--ink-soft); display:flex; flex-direction:column; gap:6px;
+  }
+  #stats div { display:flex; justify-content:space-between; }
+  #stats b { color:var(--accent-ink); font-variant-numeric:tabular-nums; }
+
+  .legend { display:flex; align-items:center; gap:8px; margin-top:12px; font-size:11px; color:var(--muted); }
+  .legend .bar { flex:1; height:8px; border-radius:4px;
+    background:linear-gradient(90deg, rgba(15,111,106,0), rgba(15,111,106,1)); }
+
+  .note {
+    margin-top:14px; padding-top:12px; border-top:1px solid var(--line);
+    font-size:11.5px; color:var(--muted); line-height:1.55;
+  }
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div id="panel">
+  <h1>🖌️ Fuzzy percepciós ecset</h1>
+  <p class="sub">Prototípus — nincs backend, semmi nem mentődik. Fesd rá a térképre, hol érzed az adott dolgot; az ecset a szélén elhalványul, több áthúzás mélyíti.</p>
+
+  <div class="row">
+    <button id="btnBrush" class="tool">🖌️ Ecset mód</button>
+    <button id="btnErase" class="tool">🧽 Radír</button>
+    <button id="btnClear" class="tool danger">🗑️ Törlés</button>
+  </div>
+
+  <label class="slider">Ecset méret — <b id="sizeVal">30</b> px
+    <input type="range" id="brushSizeInput" min="10" max="80" value="30">
+  </label>
+  <label class="slider">Erősség — <b id="strengthVal">22</b>%
+    <input type="range" id="brushStrengthInput" min="5" max="60" value="22">
+  </label>
+
+  <div class="legend"><span>0</span><div class="bar"></div><span>1</span></div>
+
+  <div id="stats">
+    <div><span>Befestett terület</span><b id="statArea">0%</b></div>
+    <div><span>Átlagos tagsági érték</span><b id="statAvg">0.00</b></div>
+    <div><span>Csúcsérték</span><b id="statMax">0.00</b></div>
+  </div>
+
+  <p class="note">Amit itt látsz, alatta egy 0–1 tartományú tagsági rács (a valós verzióban ~20 m-es cellák). Ez nem térbeli pont, hanem mérhető felszín — ez a WeeMap 2.0 alapötlete. Asztali böngészőre optimalizált próba.</p>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  const CENTER = [46.2530, 20.1414];
+  const map = L.map('map', { zoomControl: true }).setView(CENTER, 14);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap'
+  }).addTo(map);
+
+  // Fixed ~3km x 3km painting area around the Szeged center point.
+  const DLAT = 0.0135, DLNG = 0.0195;
+  const bounds = L.latLngBounds(
+    [CENTER[0] - DLAT, CENTER[1] - DLNG],
+    [CENTER[0] + DLAT, CENTER[1] + DLNG]
+  );
+  L.rectangle(bounds, { color: '#52C6B9', weight: 1, dashArray: '4 4', fill: false, interactive: false }).addTo(map);
+
+  const SIZE = 640;
+  const intensity = document.createElement('canvas');
+  intensity.width = SIZE; intensity.height = SIZE;
+  const ictx = intensity.getContext('2d');
+
+  const display = document.createElement('canvas');
+  display.width = SIZE; display.height = SIZE;
+  const dctx = display.getContext('2d');
+
+  function renderDisplay() {
+    dctx.clearRect(0, 0, SIZE, SIZE);
+    dctx.globalCompositeOperation = 'source-over';
+    dctx.fillStyle = 'rgba(15,111,106,1)';
+    dctx.fillRect(0, 0, SIZE, SIZE);
+    dctx.globalCompositeOperation = 'destination-in';
+    dctx.drawImage(intensity, 0, 0);
+    dctx.globalCompositeOperation = 'source-over';
+  }
+  renderDisplay();
+
+  const overlay = L.imageOverlay(display.toDataURL(), bounds, { opacity: 0.82, interactive: false }).addTo(map);
+
+  function latLngToCanvasXY(latlng) {
+    const x = (latlng.lng - bounds.getWest()) / (bounds.getEast() - bounds.getWest()) * SIZE;
+    const y = (bounds.getNorth() - latlng.lat) / (bounds.getNorth() - bounds.getSouth()) * SIZE;
+    return { x, y };
+  }
+
+  let brushSize = 30, brushStrength = 0.22, brushMode = false, eraseMode = false, painting = false;
+
+  function paintAt(latlng) {
+    if (!bounds.contains(latlng)) return;
+    const { x, y } = latLngToCanvasXY(latlng);
+    const r = brushSize;
+    const grad = ictx.createRadialGradient(x, y, 0, x, y, r);
+    grad.addColorStop(0, `rgba(255,255,255,${brushStrength})`);
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    ictx.globalCompositeOperation = eraseMode ? 'destination-out' : 'lighter';
+    ictx.fillStyle = grad;
+    ictx.beginPath();
+    ictx.arc(x, y, r, 0, Math.PI * 2);
+    ictx.fill();
+    ictx.globalCompositeOperation = 'source-over';
+    scheduleVisualUpdate();
+  }
+
+  let visualUpdateScheduled = false;
+  function scheduleVisualUpdate() {
+    if (visualUpdateScheduled) return;
+    visualUpdateScheduled = true;
+    requestAnimationFrame(() => {
+      visualUpdateScheduled = false;
+      renderDisplay();
+      overlay.setUrl(display.toDataURL());
+    });
+  }
+
+  function updateStats() {
+    const data = ictx.getImageData(0, 0, SIZE, SIZE).data;
+    let painted = 0, sum = 0, max = 0;
+    for (let i = 3; i < data.length; i += 4) {
+      const a = data[i] / 255;
+      if (a > 0.02) { painted++; sum += a; if (a > max) max = a; }
+    }
+    const total = SIZE * SIZE;
+    document.getElementById('statArea').textContent = (painted / total * 100).toFixed(1) + '%';
+    document.getElementById('statAvg').textContent = (painted ? sum / painted : 0).toFixed(2);
+    document.getElementById('statMax').textContent = max.toFixed(2);
+  }
+
+  let statsTimer = null;
+  function startStatsLoop() {
+    if (statsTimer) return;
+    statsTimer = setInterval(updateStats, 350);
+  }
+  function stopStatsLoop() {
+    clearInterval(statsTimer);
+    statsTimer = null;
+    updateStats();
+  }
+
+  const mapEl = document.getElementById('map');
+  const btnBrush = document.getElementById('btnBrush');
+  const btnErase = document.getElementById('btnErase');
+
+  function setBrushMode(on) {
+    brushMode = on;
+    btnBrush.classList.toggle('active', on);
+    mapEl.classList.toggle('brush-active', on);
+    if (on) { map.dragging.disable(); } else { map.dragging.enable(); painting = false; stopStatsLoop(); }
+  }
+
+  btnBrush.addEventListener('click', () => setBrushMode(!brushMode));
+  btnErase.addEventListener('click', () => {
+    eraseMode = !eraseMode;
+    btnErase.classList.toggle('active', eraseMode);
+  });
+  document.getElementById('btnClear').addEventListener('click', () => {
+    ictx.clearRect(0, 0, SIZE, SIZE);
+    scheduleVisualUpdate();
+    updateStats();
+  });
+
+  const sizeInput = document.getElementById('brushSizeInput');
+  const strengthInput = document.getElementById('brushStrengthInput');
+  sizeInput.addEventListener('input', e => {
+    brushSize = +e.target.value;
+    document.getElementById('sizeVal').textContent = brushSize;
+  });
+  strengthInput.addEventListener('input', e => {
+    brushStrength = +e.target.value / 100;
+    document.getElementById('strengthVal').textContent = e.target.value;
+  });
+
+  map.on('mousedown', e => {
+    if (!brushMode) return;
+    painting = true;
+    startStatsLoop();
+    paintAt(e.latlng);
+  });
+  map.on('mousemove', e => {
+    if (!brushMode || !painting) return;
+    paintAt(e.latlng);
+  });
+  map.on('mouseup', () => { painting = false; });
+  document.addEventListener('mouseup', () => { painting = false; });
+
+  updateStats();
+</script>
+
+</body>
+</html>
