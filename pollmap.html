@@ -37,8 +37,8 @@
             display: flex; align-items: center; justify-content: center; gap: 15px; flex-wrap: wrap;
         }
         .modal-content p { font-size: 18px; line-height: 1.5; color: #ccc; margin-bottom: 30px; text-align: left; }
-        .intro-icon { height: 34px; width: auto; }
-        .brand-highlight { font-family: 'Manrope', sans-serif; font-weight: 800; font-size: 42px; letter-spacing: -0.5px; display: flex; align-items: center; gap: 6px; }
+        .intro-logo { height: 56px; width: auto; display: block; }
+        .brand-highlight { display: flex; align-items: center; }
         .start-btn { width: 40%; padding: 10px; border: 1px solid #ddd; background: #424242; cursor: pointer; border-radius: 5px; font-size: 16px; transition: all 0.2s; color:#ffffff; font-weight: bold; }
         .start-btn:hover { background: #007bff; border-color: #007bff; }
 
@@ -84,13 +84,11 @@
         /* --- JOBB FELSŐ LOGÓ DOBOZ --- */
         #brand-box {
             position: absolute; top: 10px; right: 10px; z-index: 1000;
-            background: rgb(37, 37, 37); padding: 10px 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.15);
-            text-align: right; display: flex; align-items: center; gap: 8px;
+            background: rgb(37, 37, 37); padding: 14px 20px 10px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+            display: flex; flex-direction: column; align-items: flex-end;
         }
-        #brand-box img { height: 34px; width: auto; display: block; }
-        .brand-text { display: flex; flex-direction: column; align-items:flex-end }
-        #brand-box h1 { margin: 0; font-size: 40px; color: #ffffff; letter-spacing: -0.5px; line-height: 1.2; font-family: 'Manrope', sans-serif; font-weight: 800 }
-        #brand-box span { font-size: 15px; color: #b6b6b6; letter-spacing: 0.5px; font-family: 'Manrope', sans-serif; font-weight: 600; }
+        #brand-logo-img { height: 50px; width: auto; display: block; }
+        #brand-subtitle { margin-top: 4px; font-size: 15px; color: #b6b6b6; letter-spacing: 0.5px; font-family: 'Manrope', sans-serif; font-weight: 600; }
 
         /* --- JOBB ALSÓ DEMOGRÁFIAI DOBOZ --- */
         #survey-box {
@@ -141,15 +139,14 @@
         @media (max-width: 680px) {
             .modal-content { padding: 24px 18px; max-width: 92vw; }
             .modal-content h1 { font-size: 26px; }
-            .brand-highlight { font-size: 30px; }
+            .intro-logo { height: 38px; }
             .start-btn { width: 85%; }
 
             #bottom-logo { display: none; }
 
-            #brand-box { top: 8px; right: 8px; padding: 6px 12px; gap: 6px; }
-            #brand-box img { height: 24px; }
-            #brand-box h1 { font-size: 22px; }
-            #brand-box span { display: none; }
+            #brand-box { top: 8px; right: 8px; padding: 8px 12px 6px; }
+            #brand-logo-img { height: 32px; }
+            #brand-subtitle { display: none; }
 
             #custom-panel {
                 top: auto; bottom: 0; left: 0; right: 0; width: 100%;
@@ -189,8 +186,7 @@
             <h1>
                 Üdvözöl a
                 <span class="brand-highlight">
-                    <img src="weemap-icon.svg" class="intro-icon" alt="Logo">
-                    <span id="intro-brand-name">weemap</span>
+                    <img src="weemap-brand.svg" class="intro-logo" alt="weemap">
                 </span>
                 !
             </h1>
@@ -206,11 +202,8 @@
     </div>
 
     <div id="brand-box">
-        <img src="weemap-icon.svg" alt="Logo">
-        <div class="brand-text">
-            <h1 id="brand-title">weemap</h1>
-            <span id="brand-subtitle">by Mapversum</span>
-        </div>
+        <img src="weemap-brand.svg" alt="weemap" id="brand-logo-img">
+        <span id="brand-subtitle">by Mapversum</span>
     </div>
 
     <div id="custom-panel">
@@ -629,9 +622,7 @@
 
         function initApp(config) {
             document.title = config.project.pageTitle;
-            document.getElementById('intro-brand-name').textContent = config.project.title;
             document.getElementById('intro-text').textContent = config.project.introText;
-            document.getElementById('brand-title').textContent = config.project.title;
             document.getElementById('brand-subtitle').textContent = config.project.subtitle;
             document.getElementById('inp-city').placeholder = 'Pl. ' + config.project.cityPlaceholder;
             supabaseClient = window.supabase.createClient(config.supabase.url, config.supabase.anonKey);
