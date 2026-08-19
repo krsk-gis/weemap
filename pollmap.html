@@ -354,6 +354,11 @@
         var MIN_POINT_PIXEL_DIST = 5;
         var SIMPLIFY_TOLERANCE_DEG = 0.00003; // ~3m — enyhe simítás a puffereléshez
 
+        // Ha a húzás vége ennyi képernyő-pixelen belül ér vissza a kezdőponthoz,
+        // zárt körvonalnak vesszük (pl. egy park körberajzolása) — ilyenkor a
+        // belseje is kitöltött polygon lesz, nem csak egy vékony csík a vonal mentén.
+        var CLOSE_LOOP_PIXEL_DIST = 40;
+
         var map, supabaseClient;
         var strokeFeatures = {}; // attitude -> [{ id, geometry, comment }] — egy tömbelem = egy húzott folt, saját szöveggel
         var nextFeatureId = 1;
@@ -363,6 +368,7 @@
         var painting = false;
         var brushRadiusM = 20;
         var activeStrokePoints = [];
+        var firstStrokeScreenPoint = null;
         var lastStrokeScreenPoint = null;
         var previewUpdateScheduled = false;
 
@@ -454,12 +460,32 @@
             return 16;
         }
 
+        function isClosedLoop() {
+            if (activeStrokePoints.length < 3 || !firstStrokeScreenPoint || !lastStrokeScreenPoint) return false;
+            var dx = lastStrokeScreenPoint.x - firstStrokeScreenPoint.x;
+            var dy = lastStrokeScreenPoint.y - firstStrokeScreenPoint.y;
+            return Math.sqrt(dx * dx + dy * dy) <= CLOSE_LOOP_PIXEL_DIST;
+        }
+
         function bufferOfActiveStroke() {
             var radiusKm = effectiveRadiusKm();
             var steps = bufferSteps();
+
             if (activeStrokePoints.length === 1) {
                 return turf.circle(activeStrokePoints[0], radiusKm, { units: 'kilometers', steps: steps });
             }
+
+            if (isClosedLoop()) {
+                try {
+                    var ring = activeStrokePoints.concat([activeStrokePoints[0]]);
+                    var polygon = turf.polygon([ring]);
+                    var simplifiedPoly = turf.simplify(polygon, { tolerance: SIMPLIFY_TOLERANCE_DEG, highQuality: true });
+                    return turf.buffer(simplifiedPoly, radiusKm, { units: 'kilometers', steps: steps });
+                } catch (err) {
+                    console.warn('Zárt alakzat kitöltése sikertelen, vonal-pufferre esünk vissza:', err);
+                }
+            }
+
             var line = turf.lineString(activeStrokePoints);
             var simplified = turf.simplify(line, { tolerance: SIMPLIFY_TOLERANCE_DEG, highQuality: true });
             return turf.buffer(simplified, radiusKm, { units: 'kilometers', steps: steps });
@@ -523,6 +549,7 @@
 
         function beginStroke(lngLat, point) {
             activeStrokePoints = [[lngLat.lng, lngLat.lat]];
+            firstStrokeScreenPoint = point;
             lastStrokeScreenPoint = point;
             if (currentAttitude) {
                 map.setPaintProperty('stroke-preview-fill', 'fill-color', ATTITUDE_COLORS[currentAttitude]);
@@ -549,6 +576,7 @@
                 eraseFromAll(buffered);
             }
             activeStrokePoints = [];
+            firstStrokeScreenPoint = null;
             lastStrokeScreenPoint = null;
             map.getSource('stroke-preview').setData(emptyFC());
         }
