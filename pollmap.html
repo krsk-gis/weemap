@@ -57,14 +57,11 @@
         .tool-btn i { margin-right: 10px; width: 20px; text-align: center; }
         .btn-eraser.active { background: #f89f9f !important; border-color: #dc3545 !important; color: #dc3545 !important; }
 
-        .brush-type-row { display: flex; gap: 6px; margin-top: 10px; }
-        .brush-type-btn {
-            flex: 1; padding: 7px 8px; border: 1px solid #ddd; background: #424242;
-            cursor: pointer; border-radius: 5px; font-size: 12.5px; text-align: center;
-            color: #ffffff; font-family: 'Text Me One'; transition: all 0.2s;
+        .brush-label {
+            display: block; margin-top: 10px; padding: 7px 8px; border: 1px solid #ddd;
+            background: #8ebdff; border-color: #007bff; color: #007bff; font-weight: bold;
+            border-radius: 5px; font-size: 12.5px; text-align: center; font-family: 'Text Me One';
         }
-        .brush-type-btn:hover { background: #1a1a1a; }
-        .brush-type-btn.active { background: #8ebdff; border-color: #007bff; color: #007bff; font-weight: bold; }
 
         .slider-label { display: block; font-size: 12px; color: #cccccc; margin: 12px 0 2px; }
         .slider-label input[type=range] { width: 100%; margin-top: 4px; accent-color: #8ebdff; }
@@ -233,10 +230,7 @@
             </button>
         </div>
 
-        <div class="brush-type-row">
-            <button class="brush-type-btn active" id="btn-brush-fuzzy" onclick="setBrushType('fuzzy')">🌫️ Puha</button>
-            <button class="brush-type-btn" id="btn-brush-sharp" onclick="setBrushType('sharp')">✏️ Éles</button>
-        </div>
+        <div class="brush-label">🖌️ Rajzolás</div>
 
         <label class="slider-label">Ecset vastagság
             <input type="range" id="brushSizeInput" min="8" max="150" value="20">
@@ -366,7 +360,6 @@
         var eraserActive = false;
         var painting = false;
         var brushRadiusM = 20;
-        var brushType = 'fuzzy'; // 'fuzzy' | 'sharp' — csak a puffer szélessége/simasága, nem gradiens
         var activeStrokePoints = [];
         var lastStrokeScreenPoint = null;
         var previewUpdateScheduled = false;
@@ -401,12 +394,11 @@
         }
 
         function effectiveRadiusKm() {
-            var r = brushType === 'fuzzy' ? brushRadiusM * 1.4 : brushRadiusM;
-            return r / 1000;
+            return (brushRadiusM * 1.4) / 1000;
         }
 
         function bufferSteps() {
-            return brushType === 'sharp' ? 6 : 16;
+            return 16;
         }
 
         function bufferOfActiveStroke() {
@@ -586,12 +578,6 @@
         document.getElementById('brushSizeInput').addEventListener('input', function(e) {
             brushRadiusM = +e.target.value;
         });
-
-        function setBrushType(type) {
-            brushType = type;
-            document.getElementById('btn-brush-fuzzy').classList.toggle('active', type === 'fuzzy');
-            document.getElementById('btn-brush-sharp').classList.toggle('active', type === 'sharp');
-        }
 
         function toggleEraser() {
             if (eraserActive) { stopAllTools(); return; }
