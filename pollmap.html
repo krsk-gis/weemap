@@ -442,47 +442,82 @@
 
         // 4. BEKÜLDÉS (Google Apps Script hívás)
         const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbw3vipZJpoOP5Zyu_H3DtDYKBODidPhHisulq_inHlm9SqP7_Y1TJMJg6MCMEHcPFuk/exec';
-        
+        const SUBMIT_TIMEOUT_MS = 15000;
+
+        function timeoutSignal() {
+            return (window.AbortSignal && AbortSignal.timeout) ? AbortSignal.timeout(SUBMIT_TIMEOUT_MS) : undefined;
+        }
+
+        // Apps Script webapp responses don't reliably carry CORS headers, so a
+        // plain 'cors' fetch may fail even when the submission itself would have
+        // succeeded. We try 'cors' first so real HTTP errors are detectable; if
+        // that throws (CORS-blocked or otherwise), we fall back to 'no-cors' so
+        // the data still reaches the backend — just without a confirmed status.
+        function postToScript(payload) {
+            var body = JSON.stringify(payload);
+            return fetch(SCRIPT_URL, {
+                method: 'POST', mode: 'cors',
+                headers: { 'Content-Type': 'text/plain' },
+                body: body,
+                signal: timeoutSignal()
+            })
+            .then(response => {
+                if (!response.ok) throw new Error('Szerver hiba: HTTP ' + response.status);
+                return { confirmed: true };
+            })
+            .catch(() => {
+                return fetch(SCRIPT_URL, {
+                    method: 'POST', mode: 'no-cors',
+                    headers: { 'Content-Type': 'text/plain' },
+                    body: body,
+                    signal: timeoutSignal()
+                })
+                .then(() => ({ confirmed: false }));
+            });
+        }
+
         function submitDrawing() {
             var data = drawnItems.toGeoJSON();
             var statusDiv = document.getElementById('status');
-            
-            if (data.features.length === 0) { 
-                statusDiv.innerHTML = "<span style='color:#ffc107'>⚠️ Üres a térkép! Előbb rajzolj.</span>"; 
-                return; 
+
+            if (data.features.length === 0) {
+                statusDiv.innerHTML = "<span style='color:#ffc107'>⚠️ Üres a térkép! Előbb rajzolj.</span>";
+                return;
             }
-            
+
             var payload = { dataType: 'drawing', userID: USER_ID, geojson: data };
             var btn = document.querySelector('.submit-btn');
             btn.disabled = true; btn.innerText = "Küldés folyamatban...";
-            
-            fetch(SCRIPT_URL, {
-                method: 'POST', mode: 'no-cors', 
-                headers: { 'Content-Type': 'text/plain' },
-                body: JSON.stringify(payload)
-            })
-            .then(() => {
-                statusDiv.innerHTML = "<span style='color:#94d3a2'>✅ Sikeres beküldés! Köszönjük.</span>";
+
+            postToScript(payload)
+            .then(result => {
+                statusDiv.innerHTML = result.confirmed
+                    ? "<span style='color:#94d3a2'>✅ Sikeres beküldés! Köszönjük.</span>"
+                    : "<span style='color:#94d3a2'>✅ Elküldve.</span> <span style='color:#aaa'>(Visszaigazolás nem elérhető — ha bizonytalan vagy, nyugodtan küldd el újra.)</span>";
                 btn.innerText = "Beküldve";
                 setTimeout(() => { btn.disabled = false; btn.innerText = "✅ Térkép beküldése"; }, 5000);
             })
-            .catch(error => { console.error(error); btn.disabled = false; btn.innerText = "Hiba, próbáld újra"; });
+            .catch(error => {
+                console.error(error);
+                statusDiv.innerHTML = "<span style='color:#dc3545'>❌ Nem sikerült elküldeni. Próbáld újra.</span>";
+                btn.disabled = false; btn.innerText = "✅ Térkép beküldése";
+            });
         }
-        
+
         function submitSurvey() {
             var age = document.getElementById('inp-age').value;
             var gender = document.getElementById('inp-gender').value;
             var city = document.getElementById('inp-city').value;
             var btn = document.getElementById('survey-btn');
-            
-            if(!age || !gender || !city) { 
-                alert("Kérlek töltsd ki mind a három mezőt!"); 
-                return; 
+
+            if(!age || !gender || !city) {
+                alert("Kérlek töltsd ki mind a három mezőt!");
+                return;
             }
-            
+
             btn.innerText = "Küldés...";
             btn.disabled = true;
-            
+
             var payload = {
                 dataType: 'survey',
                 userID: USER_ID,
@@ -490,15 +525,13 @@
                 gender: gender,
                 city: city
             };
-            
-            fetch(SCRIPT_URL, {
-                method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain' },
-                body: JSON.stringify(payload)
+
+            postToScript(payload)
+            .then(result => {
+                var note = result.confirmed ? '' : " <span style='color:#aaa; font-size:12px'>(visszaigazolás nem elérhető)</span>";
+                document.getElementById('survey-box').innerHTML = "<h4 style='color:#28a745; text-align:center; margin-top:20px;'>Köszönjük! ✅</h4><p style='text-align:center; color:#ccc'>A demográfiai adataidat rögzítettük." + note + "</p>";
             })
-            .then(() => {
-                document.getElementById('survey-box').innerHTML = "<h4 style='color:#28a745; text-align:center; margin-top:20px;'>Köszönjük! ✅</h4><p style='text-align:center; color:#ccc'>A demográfiai adataidat rögzítettük.</p>";
-            })
-            .catch(error => { console.error(error); btn.innerText = "Hiba, próbáld újra"; btn.disabled = false; });
+            .catch(error => { console.error(error); btn.innerText = "Nem sikerült, próbáld újra"; btn.disabled = false; });
         }
     </script>
 </body>
