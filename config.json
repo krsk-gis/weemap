@@ -1,8 +1,8 @@
 {
   "project": {
-    "title": "WeeMap",
+    "title": "weemap",
     "subtitle": "by Mapversum",
-    "pageTitle": "WeeMap - PGIS Attitűdtérkép",
+    "pageTitle": "weemap - PGIS Attitűdtérkép",
     "introText": "Ez egy közösségi térképező alkalmazás, ahol a városi átalakulásokkal kapcsolatos véleményedre vagyunk kíváncsiak.",
     "cityPlaceholder": "Szeged"
   },

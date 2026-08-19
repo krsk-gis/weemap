@@ -3,8 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WeeMap - PGIS Attitűdtérkép</title>
-    <link rel="icon" type="image/png" href="weemaps_01.png">
+    <title>weemap - PGIS Attitűdtérkép</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="favicon-192.png">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
 
     <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -185,8 +188,8 @@
             <h1>
                 Üdvözöl a
                 <span class="brand-highlight">
-                    <img src="weemaps_01.png" class="intro-icon" alt="Logo" onerror="this.style.display='none'">
-                    <span id="intro-brand-name">WeeMap</span>
+                    <img src="weemap-icon.svg" class="intro-icon" alt="Logo">
+                    <span id="intro-brand-name">weemap</span>
                 </span>
                 !
             </h1>
@@ -202,9 +205,9 @@
     </div>
 
     <div id="brand-box">
-        <img src="weemaps_01.png" alt="Logo" onerror="this.style.display='none'">
+        <img src="weemap-icon.svg" alt="Logo">
         <div class="brand-text">
-            <h1 id="brand-title">WeeMap</h1>
+            <h1 id="brand-title">weemap</h1>
             <span id="brand-subtitle">by Mapversum</span>
         </div>
     </div>
@@ -294,9 +297,9 @@
         // ez az alapértelmezés lép életbe, hogy a felület akkor is működjön.
         var DEFAULT_CONFIG = {
             project: {
-                title: 'WeeMap',
+                title: 'weemap',
                 subtitle: 'by Mapversum',
-                pageTitle: 'WeeMap - PGIS Attitűdtérkép',
+                pageTitle: 'weemap - PGIS Attitűdtérkép',
                 introText: 'Ez egy közösségi térképező alkalmazás, ahol a városi átalakulásokkal kapcsolatos véleményedre vagyunk kíváncsiak.',
                 cityPlaceholder: 'Szeged'
             },
