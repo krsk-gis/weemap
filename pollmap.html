@@ -239,7 +239,7 @@
         </div>
 
         <label class="slider-label">Ecset vastagság
-            <input type="range" id="brushSizeInput" min="12" max="70" value="30">
+            <input type="range" id="brushSizeInput" min="3" max="40" value="4">
         </label>
 
         <textarea id="attitude-comment" class="brush-comment" placeholder="Miért érzed így? (opcionális)"></textarea>
@@ -304,7 +304,7 @@
                 introText: 'Ez egy közösségi térképező alkalmazás, ahol a városi átalakulásokkal kapcsolatos véleményedre vagyunk kíváncsiak.',
                 cityPlaceholder: 'Szeged'
             },
-            map: { center: [46.2530, 20.1414], zoom: 14, paintAreaKm: 3 },
+            map: { center: [46.2530, 20.1414], zoom: 14, paintAreaKm: 8 },
             submitUrl: 'https://script.google.com/macros/s/AKfycbw3vipZJpoOP5Zyu_H3DtDYKBODidPhHisulq_inHlm9SqP7_Y1TJMJg6MCMEHcPFuk/exec'
         };
 
@@ -350,7 +350,7 @@
             'Hiány': 'btn-missing',
             'Átalakuló terület': 'btn-polygon'
         };
-        var PAINT_CANVAS_SIZE = 320;
+        var PAINT_CANVAS_SIZE = 480;
 
         var map, SCRIPT_URL, paintBounds;
         var layers = {};
@@ -358,7 +358,7 @@
         var currentAttitude = null;
         var eraserActive = false;
         var painting = false;
-        var brushSize = 30;
+        var brushSize = 4;
         var brushType = 'fuzzy'; // 'fuzzy' | 'sharp'
         var pendingUpdates = {};
 
@@ -377,7 +377,7 @@
         }
 
         function setupPaintLayers(config) {
-            var areaKm = config.map.paintAreaKm || 3;
+            var areaKm = config.map.paintAreaKm || 8;
             paintBounds = computePaintBounds(config.map.center, areaKm);
             var coords = [
                 [paintBounds.west, paintBounds.north],

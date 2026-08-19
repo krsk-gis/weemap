@@ -9,7 +9,7 @@
   "map": {
     "center": [46.2530, 20.1414],
     "zoom": 14,
-    "paintAreaKm": 3
+    "paintAreaKm": 8
   },
   "submitUrl": "https://script.google.com/macros/s/AKfycbw3vipZJpoOP5Zyu_H3DtDYKBODidPhHisulq_inHlm9SqP7_Y1TJMJg6MCMEHcPFuk/exec"
 }
