@@ -327,6 +327,31 @@
             return { type: 'FeatureCollection', features: [] };
         }
 
+        // Piszkozat mentese sessionStorage-be (csak az adott fulre/munkamenetre
+        // vonatkozik), hogy egy veletlen "vissza" gomb ne torolje a felkesz
+        // munkat -- az oldal ujratoltesekor visszaall a legutobbi allapot.
+        var DRAFT_KEY = 'weemap_draft_v1';
+
+        function saveDraft() {
+            try {
+                sessionStorage.setItem(DRAFT_KEY, JSON.stringify({
+                    strokeFeatures: strokeFeatures,
+                    nextFeatureId: nextFeatureId
+                }));
+            } catch (e) { /* privat bongeszes stb. -- a piszkozat-mentes nem kritikus */ }
+        }
+
+        function loadDraft() {
+            try {
+                var raw = sessionStorage.getItem(DRAFT_KEY);
+                return raw ? JSON.parse(raw) : null;
+            } catch (e) { return null; }
+        }
+
+        function clearDraft() {
+            try { sessionStorage.removeItem(DRAFT_KEY); } catch (e) {}
+        }
+
         function featureCollectionOf(geom) {
             if (!geom) return emptyFC();
             var feature = geom.type === 'Feature' ? geom : { type: 'Feature', properties: {}, geometry: geom };
@@ -373,6 +398,30 @@
             map.addSource('stroke-preview', { type: 'geojson', data: emptyFC() });
             map.addLayer({ id: 'stroke-preview-fill', type: 'fill', source: 'stroke-preview', paint: { 'fill-color': '#ffffff', 'fill-opacity': 0.3 } });
             map.addLayer({ id: 'stroke-preview-line', type: 'line', source: 'stroke-preview', paint: { 'line-color': '#ffffff', 'line-width': 2, 'line-dasharray': [2, 2] } });
+
+            return restoreDraft();
+        }
+
+        // Ha a felhasznalo veletlenul visszalepett a bongeszoben (vagy ujratoltotte
+        // az oldalt), a korabban elmentett piszkozatbol visszaallitjuk a mar
+        // megrajzolt foltokat, hogy ne kelljen elolrol kezdeni.
+        function restoreDraft() {
+            var draft = loadDraft();
+            if (!draft || !draft.strokeFeatures) return false;
+
+            var restored = false;
+            ATTITUDES.forEach(function(att) {
+                var list = draft.strokeFeatures[att];
+                if (Array.isArray(list) && list.length > 0) {
+                    strokeFeatures[att] = list;
+                    renderCategory(att);
+                    restored = true;
+                }
+            });
+            if (restored && typeof draft.nextFeatureId === 'number') {
+                nextFeatureId = Math.max(nextFeatureId, draft.nextFeatureId);
+            }
+            return restored;
         }
 
         // Böngésző mód (nincs eszköz kiválasztva): a már megrajzolt foltokra
@@ -490,10 +539,12 @@
             strokeFeatures[att].push({ id: id, geometry: polygon.geometry || polygon, comment: '' });
             renderCategory(att);
             setActiveFeature(att, id);
+            saveDraft();
         }
 
         function eraseFromAll(erasePolygon) {
             if (!erasePolygon) return;
+            var anyChanged = false;
             ATTITUDES.forEach(function(att) {
                 var list = strokeFeatures[att];
                 var changed = false;
@@ -518,8 +569,9 @@
                         changed = true;
                     }
                 }
-                if (changed) renderCategory(att);
+                if (changed) { renderCategory(att); anyChanged = true; }
             });
+            if (anyChanged) saveDraft();
         }
 
         function beginStroke(lngLat, point) {
@@ -624,11 +676,13 @@
             map.on('load', function() {
                 setupCommunityLayer();
                 loadCommunityResults();
-                setupPaintLayers();
+                var restored = setupPaintLayers();
                 wirePointerEvents();
                 wireFeatureClickEditing();
 
-                document.getElementById('status').innerText = "Válassz egy eszközt!";
+                document.getElementById('status').innerText = restored
+                    ? "Folytatod a korábban megkezdett rajzot."
+                    : "Válassz egy eszközt!";
             });
         }
 
@@ -655,6 +709,7 @@
             if (!activeFeatureRef) return;
             var f = findFeature(activeFeatureRef.attitude, activeFeatureRef.id);
             if (f) f.comment = e.target.value;
+            saveDraft();
         });
 
         document.getElementById('brushSizeInput').addEventListener('input', function(e) {
@@ -716,6 +771,7 @@
             supabaseClient.from('drawings').insert(rows)
             .then(function(result) {
                 if (result.error) throw result.error;
+                clearDraft();
                 statusDiv.innerHTML = "<span style='color:#94d3a2'>✅ Sikeres beküldés! Irány a kérdőív…</span>";
                 btn.innerText = "Beküldve";
                 setTimeout(function() {
